@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AetherDrop</AssemblyName>
     <RootNamespace>NekoDrop</RootNamespace>
-    <Version>0.1.35</Version>
+    <Version>0.1.36</Version>
     <Product>AetherDrop</Product>
     <Description>AetherDrop: AirDrop for Windows</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>

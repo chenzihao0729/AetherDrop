@@ -9,6 +9,8 @@
 # folder's airdrop\, which it otherwise held open, so an uninstall could not
 # remove it), and it exits once the AirDrop engine that started it is gone,
 # instead of living on as an orphan after every engine restart.
+# 0.1.36 (#30, #32): when Windows aborts the advertisement, the reason
+# (BluetoothError) is printed and the start is tried twice more.
 $ErrorActionPreference = 'Stop'
 [Environment]::CurrentDirectory = $env:SystemRoot
 Set-Location $env:SystemRoot
@@ -19,6 +21,7 @@ function Test-ParentGone {
 }
 $AppleCompanyId = 0x004C
 $StartWaitSeconds = 5
+$StartTries = 3
 
 function Say($line) {
   [Console]::Out.WriteLine($line)
@@ -48,6 +51,31 @@ public static class AirDropBeacon {
 }
 '@
 
+  # Why Windows aborted the advertisement. Compiled on its own: if this cannot
+  # be built, only the reason is lost, the beacon still runs.
+  $watch = $false
+  try {
+    $compiler2 = New-Object System.CodeDom.Compiler.CompilerParameters
+    $compiler2.GenerateInMemory = $true
+    $compiler2.ReferencedAssemblies.AddRange([string[]]@(
+      [Reflection.Assembly]::Load('System.Runtime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a').Location,
+      [Reflection.Assembly]::Load('System.Runtime.InteropServices.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a').Location,
+      "$metadata\Windows.Devices.winmd", "$metadata\Windows.Foundation.winmd"))
+    Add-Type -CompilerParameters $compiler2 -TypeDefinition @'
+using Windows.Devices.Bluetooth.Advertisement;
+public static class AirDropBeaconWatch {
+  public static string Error = "";
+  public static void Watch(BluetoothLEAdvertisementPublisher publisher) {
+    publisher.StatusChanged += OnStatus;
+  }
+  static void OnStatus(BluetoothLEAdvertisementPublisher sender, BluetoothLEAdvertisementPublisherStatusChangedEventArgs args) {
+    if (args.Status == BluetoothLEAdvertisementPublisherStatus.Aborted) Error = args.Error.ToString();
+  }
+}
+'@
+    $watch = $true
+  } catch { }
+
   # Type 5 (AirDrop), 18 bytes: eight zeros, version 1, four two-byte hashes
   # of the sender's contact details, a zero. The hashes are random here.
   $hashes = New-Object byte[] 8
@@ -57,17 +85,28 @@ public static class AirDropBeacon {
   $data = New-Object "$namespace.BluetoothLEManufacturerData"
   $data.CompanyId = $AppleCompanyId
   $data.Data = [Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions]::AsBuffer($payload)
-  $publisher = New-Object "$namespace.BluetoothLEAdvertisementPublisher"
-  [AirDropBeacon]::Add($publisher, $data)
-  if ($args -contains '-DryRun') { Say "would advertise $($payload.Length) bytes"; return }
-  $publisher.Start()
-
-  $deadline = (Get-Date).AddSeconds($StartWaitSeconds)
-  while ("$($publisher.Status)" -notin 'Started', 'Aborted' -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 100
+  if ($args -contains '-DryRun') {
+    $publisher = New-Object "$namespace.BluetoothLEAdvertisementPublisher"
+    [AirDropBeacon]::Add($publisher, $data)
+    Say "would advertise $($payload.Length) bytes$(if ($watch) { '' } else { ' (no abort reason)' })"
+    return
+  }
+  for ($try = 1; $try -le $StartTries; $try++) {
+    $publisher = New-Object "$namespace.BluetoothLEAdvertisementPublisher"
+    [AirDropBeacon]::Add($publisher, $data)
+    if ($watch) { [AirDropBeaconWatch]::Error = ''; [AirDropBeaconWatch]::Watch($publisher) }
+    $publisher.Start()
+    $deadline = (Get-Date).AddSeconds($StartWaitSeconds)
+    while ("$($publisher.Status)" -notin 'Started', 'Aborted' -and (Get-Date) -lt $deadline) {
+      Start-Sleep -Milliseconds 100
+    }
+    if ("$($publisher.Status)" -eq 'Started' -or $try -eq $StartTries -or (Test-ParentGone)) { break }
+    try { $publisher.Stop() } catch { }
+    Start-Sleep -Seconds 1
   }
   if ("$($publisher.Status)" -ne 'Started') {
-    Say "Bluetooth did not start advertising, status $($publisher.Status)"
+    $why = if ($watch -and [AirDropBeaconWatch]::Error) { " (error $([AirDropBeaconWatch]::Error))" } else { '' }
+    Say "Bluetooth did not start advertising, status $($publisher.Status)$why after $StartTries tries"
     return
   }
   Say 'advertising'

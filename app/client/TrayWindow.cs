@@ -228,4 +228,3 @@ public sealed class TrayWindow : FloatingCard
         fade.Completed += (_, _) => Close(); Surface.BeginAnimation(OpacityProperty, fade);
     }
 }
-

@@ -103,7 +103,10 @@ public sealed class App : Application
         if (Settings.Discoverable) StartEngine();
         _wake.AirDropNearby += () => Dispatcher.BeginInvoke(() =>
         {
-            if ((string?)Service.Last?["mode"] == "ondemand") Service.Wake();
+            // effectiveMode (0.1.36+): a card that runs on demand although Concurrent is
+            // chosen (RTL8852CE) was never woken by a nearby iPhone (#32).
+            var mode = (string?)Service.Last?["effectiveMode"] ?? (string?)Service.Last?["mode"];
+            if (mode == "ondemand") Service.Wake();
         });
         _wake.Start();
         var watchdog = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };

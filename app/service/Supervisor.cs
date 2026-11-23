@@ -75,6 +75,9 @@ public sealed class Supervisor : IDisposable
                 ["event"] = "state",
                 ["radio"] = State.ToString().ToLowerInvariant(),
                 ["mode"] = _cfg.Mode.ToString().ToLowerInvariant(),
+                // What the card actually runs (#32): an RTL8852CE set to Concurrent runs
+                // on demand, and the client's Bluetooth wake-up has to know that.
+                ["effectiveMode"] = EffectiveMode().ToString().ToLowerInvariant(),
                 ["channel"] = _channel,
                 ["country"] = _cfg.Country,
                 ["fastUnlock"] = _cfg.FastUnlock,

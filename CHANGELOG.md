@@ -6,6 +6,22 @@
 
 ---
 
+## v0.1.36 (Hourly / Pre-release) — 2026-11-23
+
+### 中文
+- **修复网卡重启后 AirDrop 数据全部被丢掉（[#30](https://github.com/zheznanohana/nekodrop/issues/30)）**：radio 每次重启（切信道、连 Wi-Fi）时 awdld 也会重启，新的 awdld 创建 `awdl0` 虚拟网卡时，旧的那个可能还没完全删掉，Wintun 返回 error 183（已存在）。awdld 于是在没有 `awdl0` 的情况下继续运行，日志里是 `no host interface, AWDL data will be dropped`：iPhone 能看到电脑，但 AirDrop 一个数据帧都过不去，直到下一次重启。现在遇到 183 会每 0.25 秒重试，最多等 10 秒。**只编译测试过，没有真机验证。**
+- **修复 Realtek RTL8852CE 上 iPhone 打开 AirDrop 时不会唤醒网卡（[#32](https://github.com/zheznanohana/nekodrop/issues/32)）**：RTL8852CE 不能和 Wi-Fi 同时工作，选了「同时」模式时实际按「按需」运行，但服务告诉客户端的还是「同时」，客户端的蓝牙唤醒只在「按需」时才触发，所以从来不会唤醒。现在服务会另外报告实际运行的模式。**只编译测试过，没有真机验证。**
+- **蓝牙信标被系统中止时写明原因并重试（[#30](https://github.com/zheznanohana/nekodrop/issues/30)、[#32](https://github.com/zheznanohana/nekodrop/issues/32)）**：日志里 `Bluetooth did not start advertising, status Aborted` 时，电脑叫不醒附近的 iPhone，iPhone 只有自己打开分享面板时才会出现在列表里。现在会再试两次，仍然失败时日志会带上 Windows 给的原因（例如 `RadioNotAvailable`、`ResourceInUse`），方便定位。
+- README 常见问题：同时模式下没有 Windows 无线网卡，个别要检测无线网卡的软件（例如某游戏的二维码登录）用不了，请切到「按需」（[#33](https://github.com/zheznanohana/nekodrop/issues/33)）。
+
+### English
+- **Fixed all AirDrop data being dropped after the radio restarts ([#30](https://github.com/zheznanohana/nekodrop/issues/30))**: awdld restarts with the radio (a channel move, a Wi-Fi join), and the new one could ask Wintun for `awdl0` while the old adapter was still going away: error 183 (already exists). awdld then ran on without `awdl0` (`no host interface, AWDL data will be dropped`): the iPhone saw the PC but no AirDrop data got through until the next restart. It now retries every 0.25 s for up to 10 s. **CI-tested only, not on hardware.**
+- **Fixed a nearby iPhone's AirDrop never waking a Realtek RTL8852CE ([#32](https://github.com/zheznanohana/nekodrop/issues/32))**: that card cannot keep Wi-Fi beside AirDrop, so with *together* chosen it runs on demand; but the service kept reporting *together*, and the client only wakes the card on demand. The service now also reports the mode the card actually runs. **CI-tested only, not on hardware.**
+- **When Windows aborts the Bluetooth beacon, the reason is logged and the start retried ([#30](https://github.com/zheznanohana/nekodrop/issues/30), [#32](https://github.com/zheznanohana/nekodrop/issues/32))**: with `Bluetooth did not start advertising, status Aborted` the PC cannot wake iPhones nearby, which then show up only while their own share sheet is open. It is now tried twice more, and a failure carries Windows' reason (such as `RadioNotAvailable` or `ResourceInUse`).
+- README troubleshooting: *together* mode has no Windows Wi-Fi adapter, so an app that looks for one (such as a game's QR-code login) fails there; use *on demand* for it ([#33](https://github.com/zheznanohana/nekodrop/issues/33)).
+
+---
+
 ## v0.1.35 (Stable / 稳定版) — 2026-11-23
 
 > 自 v0.1.33 稳定版以来：A-MPDU 聚合发送转正、始终打开；修复连 iPhone 热点要试好几次（v0.1.34）。A-MPDU 有 AX201 和 AX200 的真机数据；连热点的修复只在 CI 上测过。 / Since the v0.1.33 stable release: A-MPDU sending graduates and is always on; joining an iPhone hotspot no longer takes several tries (v0.1.34). A-MPDU has hardware data from an AX201 and an AX200; the hotspot fix is CI-tested only.

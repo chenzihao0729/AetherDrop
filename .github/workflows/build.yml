@@ -24,11 +24,17 @@ jobs:
       - name: Build
         shell: pwsh
         run: .\scripts\build-installer.ps1
+      - name: Bluetooth beacon script (dry run, Windows PowerShell 5.1)
+        shell: pwsh
+        run: |
+          $out = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File installer\airdrop-beacon.ps1 -DryRun
+          "$out"
+          if ("$out" -notmatch '^would advertise \d+ bytes$') { throw "beacon dry run: $out" }
       - name: SHA-256
         shell: pwsh
-        run: Get-ChildItem build\nekodrop-*-setup.exe | Get-FileHash -Algorithm SHA256 | Format-List
+        run: Get-ChildItem build\AetherDrop-*-setup.exe | Get-FileHash -Algorithm SHA256 | Format-List
       - uses: actions/upload-artifact@v4
         with:
           name: installer
-          path: build/nekodrop-*-setup.exe
+          path: build/AetherDrop-*-setup.exe
           if-no-files-found: error
