@@ -327,6 +327,15 @@ public sealed class App : Application
         }
         Shutdown();
     }
+    static IEnumerable<System.Windows.Controls.TextBlock> PreviewText(DependencyObject root)
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is System.Windows.Controls.TextBlock text) yield return text;
+            foreach (var descendant in PreviewText(child)) yield return descendant;
+        }
+    }
 
     /// <summary>
     /// --snapshot DIR [--lang zh|en]: renders the send, main and settings windows
@@ -363,6 +372,23 @@ public sealed class App : Application
             w.Left = -20000; w.Top = -20000; w.ShowActivated = false; w.ShowInTaskbar = false;
             w.Show();
             w.UpdateLayout();
+            // Public documentation captures use neutral metadata, never local
+            // user paths or machine names. Only these preview controls change.
+            if (w is MainWindow mainPreview)
+            {
+                ((System.Windows.Controls.TextBlock)mainPreview.FindName("MachineText")).Text = "AetherDrop PC";
+                ((System.Windows.Controls.TextBlock)mainPreview.FindName("FolderText")).Text = @"Downloads\AetherDrop";
+            }
+            if (w is SettingsWindow settingsPreview)
+            {
+                ((System.Windows.Controls.TextBox)settingsPreview.FindName("NameBox")).Text = "AetherDrop PC";
+                ((System.Windows.Controls.TextBox)settingsPreview.FindName("FolderBox")).Text = @"Downloads\AetherDrop";
+            }
+            if (w is TrayWindow trayPreview)
+            {
+                foreach (var label in PreviewText(trayPreview))
+                    if (label.Text == Environment.MachineName) label.Text = "AetherDrop PC";
+            }
             if (w.Content is not FrameworkElement root) continue;
             Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             var width = (int)root.ActualWidth; var height = (int)root.ActualHeight;

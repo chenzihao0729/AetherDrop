@@ -13,6 +13,37 @@
 
 **当前版本：0.1.35** · [下载 AetherDrop](https://github.com/chenzihao0729/AetherDrop/releases) · [网卡兼容性](docs/COMPATIBILITY.zh-CN.md) · [上游版本记录](CHANGELOG.md) · [许可](LICENSE)
 
+## 界面预览
+
+以下为 0.1.35 新版界面的演示截图，使用示例设备和数据；进度与速率仅用于展示样式。
+
+### 主界面与设置
+
+| 界面 | 浅色模式 | 深色模式 |
+|---|---|---|
+| 主界面 | <img src="docs/screenshots/main-light.png" width="320" alt="AetherDrop 主界面，浅色模式"> | <img src="docs/screenshots/main-dark.png" width="320" alt="AetherDrop 主界面，深色模式"> |
+| 设置 | <img src="docs/screenshots/settings-light.png" width="320" alt="AetherDrop 设置，浅色模式"> | <img src="docs/screenshots/settings-dark.png" width="320" alt="AetherDrop 设置，深色模式"> |
+
+### 托盘与接收流程
+
+| 状态 | 浅色模式 | 深色模式 |
+|---|---|---|
+| 托盘弹窗 | <img src="docs/screenshots/tray-light.png" width="302" alt="托盘弹窗，浅色模式"> | <img src="docs/screenshots/tray-dark.png" width="302" alt="托盘弹窗，深色模式"> |
+| 接收邀请 | <img src="docs/screenshots/receive-light.png" width="302" alt="接收邀请，浅色模式"> | <img src="docs/screenshots/receive-dark.png" width="302" alt="接收邀请，深色模式"> |
+| 实时传输 | <img src="docs/screenshots/progress-light.png" width="302" alt="实时传输，浅色模式"> | <img src="docs/screenshots/progress-dark.png" width="302" alt="实时传输，深色模式"> |
+| 接收完成 | <img src="docs/screenshots/complete-light.png" width="302" alt="接收完成，浅色模式"> | <img src="docs/screenshots/complete-dark.png" width="302" alt="接收完成，深色模式"> |
+| 连接中断 | <img src="docs/screenshots/failed-light.png" width="302" alt="连接中断，浅色模式"> | <img src="docs/screenshots/failed-dark.png" width="302" alt="连接中断，深色模式"> |
+
+<details>
+<summary>发送窗口与 Wi-Fi 管理</summary>
+
+| 界面 | 浅色模式 | 深色模式 |
+|---|---|---|
+| 发送窗口 | <img src="docs/screenshots/send-light.png" width="300" alt="发送窗口，浅色模式"> | <img src="docs/screenshots/send-dark.png" width="300" alt="发送窗口，深色模式"> |
+| Wi-Fi 管理 | <img src="docs/screenshots/wifi-light.png" width="300" alt="Wi-Fi 管理，浅色模式"> | <img src="docs/screenshots/wifi-dark.png" width="300" alt="Wi-Fi 管理，深色模式"> |
+
+</details>
+
 ## 功能与兼容性
 
 依赖 Windows 原生无线网卡接口的软件（如部分无线调试或投屏工具）可能需要切换到“按需接管网卡”模式。
