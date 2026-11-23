@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>NekoDropService</AssemblyName>
     <RootNamespace>NekoDrop.Service</RootNamespace>
-    <Version>0.1.36</Version>
+    <Version>0.1.35</Version>
     <Product>AetherDrop</Product>
     <Description>AetherDrop: AirDrop on the built-in Intel Wi-Fi card (service)</Description>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

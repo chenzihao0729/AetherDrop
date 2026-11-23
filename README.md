@@ -11,7 +11,7 @@
 
 **AetherDrop 基于原作者 [zheznanohana](https://github.com/zheznanohana) 的 [nekodrop](https://github.com/zheznanohana/nekodrop) 项目修改，修改基线版本为 0.1.35。** 原作者及上游贡献者完成了底层驱动、无线通信、隔空投送和服务管理等核心工作。本项目主要调整品牌、界面、交互和分发方式，保留上游署名及开源许可。
 
-[网卡兼容性](docs/COMPATIBILITY.zh-CN.md) · [上游版本记录](CHANGELOG.md) · [许可](LICENSE)
+**当前版本：0.1.35** · [下载 AetherDrop](https://github.com/chenzihao0729/AetherDrop/releases) · [网卡兼容性](docs/COMPATIBILITY.zh-CN.md) · [上游版本记录](CHANGELOG.md) · [许可](LICENSE)
 
 ## 本项目的修改
 
@@ -34,9 +34,18 @@
 
 苹果设备上请将隔空投送设为 **所有人（10 分钟）**。“仅限联系人”依赖 Apple ID 身份，当前方案不支持。
 
+## 下载与版本
+
+当前 AetherDrop 安装包为 **0.1.35**，文件名为 `AetherDrop-0.1.35-setup.exe`。
+
+- **本项目下载：** [AetherDrop Releases](https://github.com/chenzihao0729/AetherDrop/releases)。
+- **原项目发布：** [nekodrop Releases](https://github.com/zheznanohana/nekodrop/releases)，修改基线为 **0.1.35**。
+
+`CHANGELOG.md` 保留上游历史，其中可能包含后续版本记录，不代表本项目已发布该版本。
+
 ## 安装与使用
 
-1. 使用发布的 `AetherDrop-<版本>-setup.exe` 安装包，按提示授予管理员权限。
+1. 使用发布的 `AetherDrop-0.1.35-setup.exe` 安装包，按提示授予管理员权限。
 2. 默认安装位置为 `C:\Program Files\AetherDrop`，安装程序配置所需服务、驱动和防火墙规则。
 3. 启动后通过托盘图标开启接收。可在设置页修改设备名称、接收目录和联网方式。
 4. 从苹果设备发起隔空投送，或在 Windows 中右键文件选择 **用 AetherDrop 发送**。
