@@ -2,51 +2,56 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NekoDrop"
-        Title="{local:T set.title}" Width="520" Height="600" ResizeMode="CanMinimize"
-        WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource Window}" Foreground="{DynamicResource Text}"
-        FontFamily="{DynamicResource UiFont}" FontSize="14">
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="{local:T set.title}" Width="600" Height="760" MinWidth="520" MinHeight="500"
+        ResizeMode="CanResize" WindowStyle="None" Icon="{x:Static local:Branding.WindowIcon}"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource ToneF8FBFE}" Foreground="{DynamicResource Tone1C2024}"
+        FontFamily="{DynamicResource UiFont}" FontSize="14"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="0" CornerRadius="0" GlassFrameThickness="0" ResizeBorderThickness="5"/>
+  </shell:WindowChrome.WindowChrome>
   <Window.Resources>
-    <Style x:Key="CardBox" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource Card}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource CardStroke}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="8"/>
-      <Setter Property="Padding" Value="16,12"/>
-      <Setter Property="Margin" Value="0,0,0,4"/>
-    </Style>
-    <Style x:Key="Caption" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
-      <Setter Property="TextWrapping" Value="Wrap"/>
-    </Style>
-    <Style TargetType="RadioButton">
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Margin" Value="0,6,0,0"/>
-    </Style>
-    <Style TargetType="CheckBox">
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Margin" Value="0,6,0,0"/>
-    </Style>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="SettingsStyles.xaml"/></ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
   </Window.Resources>
-  <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="24,16,24,20">
-      <TextBlock Text="{local:T set.heading}" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12"/>
-
+  <Border BorderBrush="{DynamicResource ToneC5D1DC}" BorderThickness="1" CornerRadius="8">
+    <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="{DynamicResource ToneColorFDFEFF}" Offset="0"/><GradientStop Color="{DynamicResource ToneColorF5FAFC}" Offset="1"/></LinearGradientBrush></Border.Background>
+    <Grid>
+      <Grid.RowDefinitions><RowDefinition Height="88"/><RowDefinition/><RowDefinition Height="76"/></Grid.RowDefinitions>
+      <Grid Margin="24,0" MouseLeftButtonDown="Header_MouseLeftButtonDown" Background="Transparent">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition/><ColumnDefinition Width="32"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
+        <Image Source="{x:Static local:Branding.TrayPanelLogo}" Width="34" Height="34" HorizontalAlignment="Left" RenderOptions.BitmapScalingMode="HighQuality"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{local:T set.heading}" FontSize="21" FontWeight="Bold"/>
+          <TextBlock x:Name="VersionText" Text="AetherDrop" FontSize="12" Foreground="{DynamicResource Tone6C737A}" Margin="0,3,0,0"/>
+        </StackPanel>
+        <Button Grid.Column="2" Style="{StaticResource ChromeButton}" Click="Minimize_Click" AutomationProperties.Name="{local:T window.minimize}">
+          <Path Data="M 1,7 L 13,7" Width="14" Height="14" Stroke="{DynamicResource Tone6C737A}" StrokeThickness="1.5"/>
+        </Button>
+        <Button Grid.Column="3" Style="{StaticResource ChromeButton}" Click="Cancel_Click" AutomationProperties.Name="{local:T window.close}">
+          <Path Data="M 1,1 L 13,13 M 13,1 L 1,13" Width="14" Height="14" Stroke="{DynamicResource Tone6C737A}" StrokeThickness="1.5"/>
+        </Button>
+      </Grid>
+      <Border Grid.Row="1" BorderBrush="{DynamicResource ToneDDE6EE}" BorderThickness="0,1,0,1">
+        <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+          <StackPanel Margin="24,18,24,6">
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.name}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.name}" FontWeight="Bold"/>
           <TextBlock Text="{local:T set.nameHint}" Style="{StaticResource Caption}"/>
-          <TextBox x:Name="NameBox" Margin="0,8,0,0" Padding="6,4" MaxLength="40"/>
+          <TextBox x:Name="NameBox" Margin="0,8,0,0" Padding="10,7" MaxLength="40"/>
         </StackPanel>
       </Border>
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.folder}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.folder}" FontWeight="Bold"/>
           <DockPanel Margin="0,8,0,0">
             <Button DockPanel.Dock="Right" Content="{local:T main.change}" Click="Browse_Click" Margin="8,0,0,0" Padding="12,4"/>
-            <TextBox x:Name="FolderBox" Padding="6,4" IsReadOnly="True"/>
+            <TextBox x:Name="FolderBox" Padding="10,7" IsReadOnly="True"/>
           </DockPanel>
           <CheckBox x:Name="AskBox" Content="{local:T set.ask}"/>
         </StackPanel>
@@ -54,12 +59,12 @@
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.network}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.network}" FontWeight="Bold"/>
           <RadioButton x:Name="ModeConcurrent" GroupName="mode" Content="{local:T mode.concurrent}"/>
-          <TextBlock Style="{StaticResource Caption}" Margin="20,0,0,0"
+          <TextBlock Style="{StaticResource Caption}" Margin="26,4,0,0"
                      Text="{local:T mode.concurrent.hint}"/>
           <RadioButton x:Name="ModeOnDemand" GroupName="mode" Content="{local:T mode.ondemand}"/>
-          <TextBlock Style="{StaticResource Caption}" Margin="20,0,0,0"
+          <TextBlock Style="{StaticResource Caption}" Margin="26,4,0,0"
                      Text="{local:T mode.ondemand.hint}"/>
           <RadioButton x:Name="ModeOff" GroupName="mode" Content="{local:T mode.off}"/>
         </StackPanel>
@@ -67,7 +72,7 @@
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.trusted}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.trusted}" FontWeight="Bold"/>
           <TextBlock Text="{local:T set.trustedHint}" Style="{StaticResource Caption}"/>
           <ListBox x:Name="TrustedList" Height="80" Margin="0,8,0,0"/>
           <Button Content="{local:T set.remove}" Click="RemoveTrusted_Click" HorizontalAlignment="Left" Margin="0,6,0,0" Padding="12,4"/>
@@ -76,7 +81,7 @@
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.language}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.language}" FontWeight="Bold"/>
           <ComboBox x:Name="LanguageBox" Margin="0,8,0,0" HorizontalAlignment="Left" MinWidth="200">
             <ComboBoxItem Tag="auto" Content="{local:T lang.auto}"/>
             <ComboBoxItem Tag="zh" Content="简体中文"/>
@@ -91,7 +96,7 @@
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.updates}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.updates}" FontWeight="Bold"/>
           <CheckBox x:Name="CheckUpdatesBox" Content="{local:T set.checkUpdates}"/>
           <CheckBox x:Name="PreviewUpdatesBox" Content="{local:T set.previewUpdates}"/>
           <TextBlock Style="{StaticResource Caption}" Text="{local:T set.updates.hint}"/>
@@ -107,7 +112,7 @@
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.card}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.card}" FontWeight="Bold"/>
           <TextBlock x:Name="CardStatus" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
           <TextBlock Style="{StaticResource Caption}" Text="{local:T set.card.hint}" Margin="0,4,0,0"/>
           <ComboBox x:Name="CardBox" Margin="0,8,0,0" DisplayMemberPath="Label"/>
@@ -122,20 +127,26 @@
 
       <Border Style="{StaticResource CardBox}">
         <StackPanel>
-          <TextBlock Text="{local:T set.experimental}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T set.experimental}" FontWeight="Bold"/>
           <CheckBox x:Name="FastUnlockBox" Content="{local:T set.fastUnlock}"/>
-          <TextBlock Style="{StaticResource Caption}" Margin="20,0,0,0" Text="{local:T set.fastUnlock.hint}"/>
+          <TextBlock Style="{StaticResource Caption}" Margin="26,4,0,0" Text="{local:T set.fastUnlock.hint}"/>
           <CheckBox x:Name="CoexPlanBox" Content="{local:T set.coexPlan}" Margin="0,8,0,0"/>
-          <TextBlock Style="{StaticResource Caption}" Margin="20,0,0,0" Text="{local:T set.coexPlan.hint}"/>
+          <TextBlock Style="{StaticResource Caption}" Margin="26,4,0,0" Text="{local:T set.coexPlan.hint}"/>
           <CheckBox x:Name="BtCoexBox" Content="{local:T set.btCoex}" Margin="0,8,0,0"/>
-          <TextBlock Style="{StaticResource Caption}" Margin="20,0,0,0" Text="{local:T set.btCoex.hint}"/>
+          <TextBlock Style="{StaticResource Caption}" Margin="26,4,0,0" Text="{local:T set.btCoex.hint}"/>
         </StackPanel>
       </Border>
 
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-        <Button Content="{local:T set.save}" Click="Save_Click" Padding="20,6" IsDefault="True"/>
-        <Button Content="{local:T set.cancel}" Click="Cancel_Click" Padding="20,6" Margin="8,0,0,0" IsCancel="True"/>
-      </StackPanel>
-    </StackPanel>
-  </ScrollViewer>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+      <Grid Grid.Row="2" Margin="24,0">
+        <TextBlock Text="AetherDrop" FontSize="12" Foreground="{DynamicResource Tone87929D}" VerticalAlignment="Center"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <Button Content="{local:T set.cancel}" Click="Cancel_Click" Width="80" IsCancel="True" Margin="0,0,8,0"/>
+          <Button Content="{local:T set.save}" Click="Save_Click" Style="{StaticResource Primary}" Width="96" IsDefault="True"/>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Border>
 </Window>

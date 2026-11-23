@@ -95,16 +95,16 @@ $WifiChips = @{
 }
 # kind -> what the report says, and a hint for the reader (may be empty).
 $WifiKinds = @{
-  'supported'     = @('supported by nekodrop', '')
-  'supported-rtl' = @('supported by nekodrop (on-demand AirDrop, built-in RTL8852CE backend)', 'Windows keeps Wi-Fi normally; nekodrop takes the card only during AirDrop transfers.')
-  'intel-fw'      = @('not supported: its firmware is not shipped upstream', 'nekodrop runs the Intel cards whose firmware ForbiddenItlwm ships (API 68); this one has none there.')
-  'intel-be'      = @('not supported: Intel Wi-Fi 7, no upstream driver', 'ForbiddenItlwm, which nekodrop ports, has no driver for Wi-Fi 7 cards yet.')
-  'intel-other'   = @('not supported: an Intel device ID nekodrop does not know', 'Please post this report in an issue: if upstream ships firmware for this card, its ID can be added.')
-  'rtl'           = @('not supported: Realtek', 'Among Realtek chips, nekodrop currently has built-in support for RTL8852CE (10EC:C852) only.')
+  'supported'     = @('supported by AetherDrop', '')
+  'supported-rtl' = @('supported by AetherDrop (on-demand AirDrop, built-in RTL8852CE backend)', 'Windows keeps Wi-Fi normally; AetherDrop takes the card only during AirDrop transfers.')
+  'intel-fw'      = @('not supported: its firmware is not shipped upstream', 'AetherDrop runs the Intel cards whose firmware ForbiddenItlwm ships (API 68); this one has none there.')
+  'intel-be'      = @('not supported: Intel Wi-Fi 7, no upstream driver', 'ForbiddenItlwm, which AetherDrop ports, has no driver for Wi-Fi 7 cards yet.')
+  'intel-other'   = @('not supported: an Intel device ID AetherDrop does not know', 'Please post this report in an issue: if upstream ships firmware for this card, its ID can be added.')
+  'rtl'           = @('not supported: Realtek', 'Among Realtek chips, AetherDrop currently has built-in support for RTL8852CE (10EC:C852) only.')
   'mtk'           = @('not supported: MediaTek', 'No user-mode Windows driver exists for MediaTek Wi-Fi yet.')
   'qcom'          = @('not supported: Qualcomm', 'No user-mode Windows driver exists for Qualcomm Wi-Fi yet.')
   'bcm'           = @('not supported: Broadcom', 'There is no open Windows driver path for Broadcom Wi-Fi.')
-  'usb'           = @('not supported: USB adapter', 'nekodrop drives PCIe cards only.')
+  'usb'           = @('not supported: USB adapter', 'AetherDrop drives PCIe cards only.')
   'other'         = @('not supported: unrecognized wireless adapter', '')
 }
 $WifiVendors = @{ '8086' = 'Intel'; '10EC' = 'Realtek'; '14C3' = 'MediaTek'; '17CB' = 'Qualcomm'; '168C' = 'Qualcomm Atheros'; '14E4' = 'Broadcom'
@@ -335,10 +335,13 @@ New-Item -ItemType Directory -Force $OutDir | Out-Null
 $state = Join-Path $env:ProgramData 'nekodrop'
 $app = $PSScriptRoot
 # Downloaded on its own (for an older nekodrop): the installed copy's folder.
-if (-not (Test-Path (Join-Path $app 'NekoDropService.exe'))) { $app = Join-Path $env:ProgramFiles 'nekodrop' }
+if (-not (Test-Path (Join-Path $app 'NekoDropService.exe'))) {
+  $app = Join-Path $env:ProgramFiles 'AetherDrop'
+  if (-not (Test-Path (Join-Path $app 'NekoDropService.exe'))) { $app = Join-Path $env:ProgramFiles 'nekodrop' }
+}
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
-$reportPath = Join-Path $OutDir "nekodrop-report-$stamp.md"
-$logsPath = Join-Path $OutDir "nekodrop-logs-$stamp.txt"
+$reportPath = Join-Path $OutDir "AetherDrop-report-$stamp.md"
+$logsPath = Join-Path $OutDir "AetherDrop-logs-$stamp.txt"
 Write-Host 'nekodrop: collecting the diagnostic report...'
 
 # ---------------------------------------------------------------- helpers
@@ -482,7 +485,7 @@ function Wireless-Summary($dev) {
   $hw = if ($c.Bus -and $c.HardwareId -and $c.HardwareId -ne $c.Bus) { "$($c.Bus)\$($c.HardwareId)" } else { $c.HardwareId }
   return "$(Dev-Name $dev) (``$(Redact $hw)``): $($c.Chip), $($c.Status)"
 }
-$procs = @('nekodrop-radio', 'nekodrop-radio-rtl', 'awdld', 'nekodrop', 'NekoDropService') | ForEach-Object {
+$procs = @('nekodrop-radio', 'nekodrop-radio-rtl', 'awdld', 'AetherDrop', 'nekodrop', 'NekoDropService') | ForEach-Object {
   $p = Get-Process $_ -ErrorAction SilentlyContinue
   if ($p) { "$_ (running)" } else { "$_ (not running)" }
 }
@@ -517,7 +520,7 @@ function Stage([string]$name, [string]$ok, [string]$bad, [string]$skipIf = '') {
 $sb = New-Object System.Text.StringBuilder
 function W([string]$s = '') { [void]$sb.AppendLine($s) }
 
-W '# nekodrop diagnostic report'
+W '# AetherDrop diagnostic report'
 W ''
 W "Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm'). SSIDs, MAC and IP addresses, the user and computer names are replaced by placeholders; please look it over before posting."
 W ''

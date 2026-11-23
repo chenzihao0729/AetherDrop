@@ -16,24 +16,36 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Native.UseSmoothCorners(this);
         DataContext = A.Model;
-        SourceInitialized += (_, _) =>
-        {
-            if (Native.ApplyMica(this)) Background = Brushes.Transparent;
-        };
+        MaxHeight = SystemParameters.WorkArea.Height;
+        Height = Math.Min(Height, MaxHeight);
+        MachineText.Text = Environment.MachineName;
         A.Model.Devices.CollectionChanged += Refresh;
         A.Model.Files.CollectionChanged += Refresh;
+        A.Model.ReceivedFiles.CollectionChanged += Refresh;
         Drop += OnDrop;
         DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
         Closed += (_, _) =>
         {
             A.Model.Devices.CollectionChanged -= Refresh;
             A.Model.Files.CollectionChanged -= Refresh;
+            A.Model.ReceivedFiles.CollectionChanged -= Refresh;
             A.WindowClosed();
         };
         Refresh(null, null);
         FolderText.Text = A.Settings.SaveFolder;
     }
+    void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        for (DependencyObject? node = e.OriginalSource as DependencyObject; node is not null && node != sender; node = VisualTreeHelper.GetParent(node))
+            if (node is System.Windows.Controls.Primitives.ButtonBase) return;
+        if (e.ClickCount == 2) { Maximize_Click(sender, e); return; }
+        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+    void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    void Close_Click(object sender, RoutedEventArgs e) => Close();
 
     void ChangeFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -51,6 +63,9 @@ public partial class MainWindow : Window
     {
         NoDevices.Visibility = A.Model.Devices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         DropHint.Visibility = A.Model.Files.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SelectedFiles.Visibility = A.Model.Files.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        FileCountText.Text = L.F("done.items", A.Model.Files.Count);
+        NoReceived.Visibility = A.Model.ReceivedFiles.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void OnDrop(object sender, DragEventArgs e)

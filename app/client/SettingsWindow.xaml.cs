@@ -11,7 +11,12 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
-        SourceInitialized += (_, _) => { if (Native.ApplyMica(this)) Background = Brushes.Transparent; };
+        Native.UseSmoothCorners(this);
+        Loaded += (_, _) => CenterOnDesktop();
+        // The popup palette stays light regardless of the Windows app theme.
+        MaxHeight = SystemParameters.WorkArea.Height;
+        Height = Math.Min(Height, MaxHeight);
+        VersionText.Text = "AetherDrop · " + Updater.Current;
         var s = A.Settings;
         NameBox.Text = s.DeviceName;
         FolderBox.Text = s.SaveFolder;
@@ -26,16 +31,34 @@ public partial class SettingsWindow : Window
         FastUnlockBox.IsChecked = (bool?)A.Service.Last?["fastUnlock"] ?? false;
         CoexPlanBox.IsChecked = (bool?)A.Service.Last?["coexPlan"] ?? false;
         BtCoexBox.IsChecked = (bool?)A.Service.Last?["btCoex"] ?? false;
-        CheckUpdatesBox.IsChecked = s.CheckUpdates;
+        CheckUpdatesBox.IsChecked = Updater.Enabled && s.CheckUpdates;
+        CheckUpdatesBox.IsEnabled = Updater.Enabled;
+        PreviewUpdatesBox.IsEnabled = Updater.Enabled;
+        CheckNowButton.IsEnabled = Updater.Enabled;
         PreviewUpdatesBox.IsChecked = s.PreviewUpdates;
-        UpdateStatus.Text = "nekodrop " + Updater.Current;
+        UpdateStatus.Text = Updater.Enabled ? "AetherDrop " + Updater.Current : L.T("update.unconfigured");
         ShowCard(A.Service.Last);
         A.Service.Reply += OnCardsReply;
         Closed += (_, _) => A.Service.Reply -= OnCardsReply;
         A.Service.RequestCards();
         /* Always visible, also after "Check now" replaces the status line (#11). */
-        Title = L.T("set.title") + " · nekodrop " + Updater.Current;
+        Title = L.T("set.title") + " · AetherDrop " + Updater.Current;
     }
+    public void CenterOnDesktop()
+    {
+        if (WindowState != WindowState.Normal) WindowState = WindowState.Normal;
+        var work = FloatingCard.WorkArea(this, System.Windows.Forms.Cursor.Position);
+        MaxHeight = work.Height; Height = Math.Min(Height, work.Height);
+        Left = work.Left + (work.Width - Width) / 2;
+        Top = work.Top + (work.Height - Height) / 2;
+    }
+    void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        for (DependencyObject? node = e.OriginalSource as DependencyObject; node is not null && node != sender; node = VisualTreeHelper.GetParent(node))
+            if (node is System.Windows.Controls.Primitives.ButtonBase) return;
+        if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove();
+    }
+    void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
     string _releasesUrl = Updater.ReleasesPage;
 

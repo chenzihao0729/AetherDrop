@@ -3,10 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NekoDrop"
         Title="{local:T wifi.title}" Width="420" Height="620" MinWidth="360" MinHeight="420"
+        Icon="{x:Static local:Branding.WindowIcon}"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource Window}" Foreground="{DynamicResource Text}"
         FontFamily="{DynamicResource UiFont}" FontSize="14">
   <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="SettingsStyles.xaml"/></ResourceDictionary.MergedDictionaries>
     <Style x:Key="Caption" TargetType="TextBlock">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
@@ -36,6 +39,7 @@
       <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
       <Setter Property="Background" Value="{DynamicResource Accent}"/>
     </Style>
+    </ResourceDictionary>
   </Window.Resources>
 
   <Grid Margin="20,16,20,16">
@@ -57,7 +61,7 @@
         <TextBlock DockPanel.Dock="Left" x:Name="StateGlyph" FontFamily="{DynamicResource IconFont}" Text="&#xE701;" FontSize="22"
                    Foreground="{DynamicResource AccentText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
         <StackPanel VerticalAlignment="Center">
-          <TextBlock x:Name="StateTitle" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <TextBlock x:Name="StateTitle" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
           <TextBlock x:Name="StateDetail" Style="{StaticResource Caption}"/>
         </StackPanel>
       </DockPanel>
@@ -70,7 +74,7 @@
       <StackPanel>
         <DockPanel Margin="4,0,0,6">
           <TextBlock x:Name="ScanText" DockPanel.Dock="Right" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
-          <TextBlock Text="{local:T wifi.nearby}" FontWeight="SemiBold"/>
+          <TextBlock Text="{local:T wifi.nearby}" FontWeight="Bold"/>
         </DockPanel>
         <StackPanel x:Name="NetworkList"/>
         <TextBlock x:Name="EmptyText" Text="{local:T wifi.empty}" Style="{StaticResource Caption}" Margin="4,4,0,0"/>

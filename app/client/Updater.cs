@@ -18,6 +18,8 @@ namespace NekoDrop;
 /// </summary>
 public static class Updater
 {
+    // Enable only after configuring an AetherDrop release feed.
+    public static bool Enabled => false;
     const string ReleasesApi = "https://api.github.com/repos/zheznanohana/nekodrop/releases?per_page=15";
     const string ReleasesAtom = "https://github.com/zheznanohana/nekodrop/releases.atom";
     const string TagUrlPrefix = "https://github.com/zheznanohana/nekodrop/releases/tag/";
@@ -151,6 +153,7 @@ public static class Updater
     /// </summary>
     public static async Task<CheckResult> Check(bool includePreview)
     {
+        if (!Enabled) return new CheckResult(CheckStatus.Failed, Detail: L.T("update.unconfigured"));
         var (cachedEtag, cachedJson) = ReadCache();
         try
         {

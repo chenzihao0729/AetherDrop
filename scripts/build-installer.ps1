@@ -5,7 +5,7 @@
 #   airdrop\  winawdl's AirDrop engine (Python, MIT)
 #   python\   the Python embeddable distribution
 #   driver\   the register-proxy UMDF driver package (signed on the target PC)
-#   nekodrop.exe (client), NekoDropService.exe (service), install/uninstall scripts
+#   AetherDrop.exe (client), NekoDropService.exe (service), install/uninstall scripts
 # -Offline skips the downloads (Python embeddable, TAP-Windows) and uses what
 # build\downloads already holds.
 param([switch]$Offline, [string]$PythonVersion = '3.12.8', [string]$TapVersion = '9.24.7-I601')
@@ -63,6 +63,7 @@ if ($LASTEXITCODE -ne 0) { throw "context menu DLL build failed ($LASTEXITCODE)"
 Copy-Item "$shellBuild\nekodrop-shell.dll" $stage
 Copy-Item "$repo\installer\sparse\AppxManifest.xml" "$shellBuild\pkg\"
 Copy-Item "$repo\app\assets\logo150.png" "$shellBuild\pkg\Assets\logo.png"
+Copy-Item "$repo\app\assets\logo44.png" "$shellBuild\pkg\Assets\logo44.png"
 $makeAppx = Join-Path (Split-Path $tools.SignTool) 'makeappx.exe'
 New-Item -ItemType Directory -Force "$stage\shell" | Out-Null
 & $makeAppx pack /o /nv /d "$shellBuild\pkg" /p "$stage\shell\nekodrop-shell.msix" | Out-Null
@@ -106,7 +107,7 @@ foreach ($script in 'install.ps1', 'uninstall.ps1', 'setup-tap.ps1', 'restore.ps
   if ($LASTEXITCODE -ne 0) { throw "$script does not parse" }
 }
 # Offline installer/rollback/report self-tests under Windows PowerShell 5.1 (no card or admin rights needed).
-foreach ($script in 'install.ps1', 'restore.ps1', 'report.ps1') {
+foreach ($script in 'install.ps1', 'restore.ps1', 'report.ps1', 'uninstall.ps1') {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$stage\$script" -SelfTest
   if ($LASTEXITCODE -ne 0) { throw "$script self-test failed ($LASTEXITCODE)" }
 }
@@ -150,14 +151,14 @@ $devourerLicense = @("$repo\third_party\winawdl\upstream\devourer\LICENSE", "$re
   Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($devourerLicense) { Copy-Item $devourerLicense "$stage\licenses\devourer-GPL-2.0.txt" }
 
-$iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
+$iscc = @("$repo\third_party\innosetup\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
         Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($iscc) {
   & $iscc "$repo\installer\nekodrop.iss" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
-  Get-ChildItem "$repo\build\nekodrop-*-setup.exe" | Select-Object Name, Length
+  Get-ChildItem "$repo\build\AetherDrop-*-setup.exe" | Select-Object Name, Length
 } else {
-  $zip = "$repo\build\nekodrop-0.1.35-windows-x64.zip"
+  $zip = "$repo\build\AetherDrop-0.1.35-windows-x64.zip"
   Compress-Archive "$stage\*" $zip -Force
   "Inno Setup not found: made $zip instead (unzip, then run install.ps1 as administrator)."
 }

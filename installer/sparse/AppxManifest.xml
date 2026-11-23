@@ -2,7 +2,7 @@
 <!-- Sparse package: gives nekodrop the package identity Windows 11 requires for
      a verb on the first level of the Explorer context menu. It carries no
      program files; its external location is the install folder, where
-     nekodrop-shell.dll and nekodrop.exe are. install.ps1 signs it with the
+     nekodrop-shell.dll and AetherDrop.exe are. install.ps1 signs it with the
      certificate made on this PC (Publisher must equal its subject); the client
      registers it for each user. -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -16,8 +16,8 @@
   <Identity Name="nekodrop.shell" ProcessorArchitecture="neutral"
             Publisher="CN=nekodrop driver (signed on this PC)" Version="0.1.0.0" />
   <Properties>
-    <DisplayName>nekodrop</DisplayName>
-    <PublisherDisplayName>nekodrop project</PublisherDisplayName>
+    <DisplayName>AetherDrop</DisplayName>
+    <PublisherDisplayName>AetherDrop project</PublisherDisplayName>
     <Logo>Assets\logo.png</Logo>
     <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
   </Properties>
@@ -32,9 +32,9 @@
     <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
   <Applications>
-    <Application Id="nekodrop" Executable="nekodrop.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
-      <uap:VisualElements AppListEntry="none" DisplayName="nekodrop" Description="AirDrop for Windows"
-                          BackgroundColor="transparent" Square150x150Logo="Assets\logo.png" Square44x44Logo="Assets\logo.png" />
+    <Application Id="nekodrop" Executable="AetherDrop.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="AetherDrop" Description="AirDrop for Windows"
+                          BackgroundColor="transparent" Square150x150Logo="Assets\logo.png" Square44x44Logo="Assets\logo44.png" />
       <Extensions>
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
@@ -48,7 +48,7 @@
         </desktop4:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:SurrogateServer DisplayName="nekodrop context menu">
+            <com:SurrogateServer DisplayName="AetherDrop context menu">
               <com:Class Id="79AAAA41-782F-4AF2-B937-4A587C77FABE" Path="nekodrop-shell.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>

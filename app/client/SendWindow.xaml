@@ -3,10 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NekoDrop"
         Title="{local:T send.title}" Width="440" Height="460" MinWidth="380" MinHeight="380"
+        Icon="{x:Static local:Branding.WindowIcon}"
         WindowStartupLocation="CenterScreen" ShowInTaskbar="True" AllowDrop="True"
         Background="{DynamicResource Window}" Foreground="{DynamicResource Text}"
         FontFamily="{DynamicResource UiFont}" FontSize="14">
   <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="SettingsStyles.xaml"/></ResourceDictionary.MergedDictionaries>
     <Style x:Key="Caption" TargetType="TextBlock">
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
@@ -31,6 +34,7 @@
         </Setter.Value>
       </Setter>
     </Style>
+    </ResourceDictionary>
   </Window.Resources>
 
   <Grid Margin="20,16,20,16">
@@ -51,13 +55,13 @@
                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Grid>
         <StackPanel VerticalAlignment="Center">
-          <TextBlock x:Name="SummaryText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <TextBlock x:Name="SummaryText" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
           <TextBlock x:Name="SizeText" Style="{StaticResource Caption}"/>
         </StackPanel>
       </DockPanel>
     </Border>
 
-    <TextBlock Grid.Row="1" Text="{local:T send.choose}" FontWeight="SemiBold" Margin="2,16,0,8"/>
+    <TextBlock Grid.Row="1" Text="{local:T send.choose}" FontWeight="Bold" Margin="2,16,0,8"/>
 
     <Grid Grid.Row="2">
       <TextBlock x:Name="NoDevices" Text="{local:T send.none}" Style="{StaticResource Caption}" TextWrapping="Wrap"

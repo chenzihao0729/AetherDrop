@@ -523,7 +523,11 @@ if ($after) {
   }
 }
 if ($Uninstall) {
-  $un = Join-Path $env:ProgramFiles 'nekodrop\uninstall.ps1'
-  if (Test-Path $un) { 'Uninstalling nekodrop'; & $un }
+  $un = @(
+    (Join-Path $PSScriptRoot 'uninstall.ps1'),
+    (Join-Path $env:ProgramFiles 'AetherDrop\uninstall.ps1'),
+    (Join-Path $env:ProgramFiles 'nekodrop\uninstall.ps1')
+  ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($un) { 'Uninstalling AetherDrop'; & $un -Target (Split-Path $un -Parent) }
 }
 Stop-Transcript | Out-Null

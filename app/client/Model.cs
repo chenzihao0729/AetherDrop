@@ -50,6 +50,7 @@ public sealed class Request : Observable
     public required string Sender { get; init; }
     public required string Model { get; init; }
     public required string What { get; init; }
+    public bool Answered { get; set; }
     string _status = L.T("req.waiting");
     double _progress;
     public string Status { get => _status; set => Set(ref _status, value); }

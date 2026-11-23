@@ -17,7 +17,7 @@
 # is checked while the script is parsed, before param(), so -SelfTest could not
 # run on a build machine without them. The same check is made below instead,
 # before anything is written.
-param([switch]$DryRun, [string]$Target = "$env:ProgramFiles\nekodrop", [switch]$SelfTest)
+param([switch]$DryRun, [string]$Target = "$env:ProgramFiles\AetherDrop", [switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
 
 # ------------------------------------------------ Wi-Fi card classification
@@ -94,16 +94,16 @@ $WifiChips = @{
 }
 # kind -> what the report says, and a hint for the reader (may be empty).
 $WifiKinds = @{
-  'supported'     = @('supported by nekodrop', '')
-  'supported-rtl' = @('supported by nekodrop (on-demand AirDrop, built-in RTL8852CE backend)', 'Windows keeps Wi-Fi normally; nekodrop takes the card only during AirDrop transfers.')
-  'intel-fw'      = @('not supported: its firmware is not shipped upstream', 'nekodrop runs the Intel cards whose firmware ForbiddenItlwm ships (API 68); this one has none there.')
-  'intel-be'      = @('not supported: Intel Wi-Fi 7, no upstream driver', 'ForbiddenItlwm, which nekodrop ports, has no driver for Wi-Fi 7 cards yet.')
-  'intel-other'   = @('not supported: an Intel device ID nekodrop does not know', 'Please post this report in an issue: if upstream ships firmware for this card, its ID can be added.')
-  'rtl'           = @('not supported: Realtek', 'Among Realtek chips, nekodrop currently has built-in support for RTL8852CE (10EC:C852) only.')
+  'supported'     = @('supported by AetherDrop', '')
+  'supported-rtl' = @('supported by AetherDrop (on-demand AirDrop, built-in RTL8852CE backend)', 'Windows keeps Wi-Fi normally; AetherDrop takes the card only during AirDrop transfers.')
+  'intel-fw'      = @('not supported: its firmware is not shipped upstream', 'AetherDrop runs the Intel cards whose firmware ForbiddenItlwm ships (API 68); this one has none there.')
+  'intel-be'      = @('not supported: Intel Wi-Fi 7, no upstream driver', 'ForbiddenItlwm, which AetherDrop ports, has no driver for Wi-Fi 7 cards yet.')
+  'intel-other'   = @('not supported: an Intel device ID AetherDrop does not know', 'Please post this report in an issue: if upstream ships firmware for this card, its ID can be added.')
+  'rtl'           = @('not supported: Realtek', 'Among Realtek chips, AetherDrop currently has built-in support for RTL8852CE (10EC:C852) only.')
   'mtk'           = @('not supported: MediaTek', 'No user-mode Windows driver exists for MediaTek Wi-Fi yet.')
   'qcom'          = @('not supported: Qualcomm', 'No user-mode Windows driver exists for Qualcomm Wi-Fi yet.')
   'bcm'           = @('not supported: Broadcom', 'There is no open Windows driver path for Broadcom Wi-Fi.')
-  'usb'           = @('not supported: USB adapter', 'nekodrop drives PCIe cards only.')
+  'usb'           = @('not supported: USB adapter', 'AetherDrop drives PCIe cards only.')
   'other'         = @('not supported: unrecognized wireless adapter', '')
 }
 $WifiVendors = @{ '8086' = 'Intel'; '10EC' = 'Realtek'; '14C3' = 'MediaTek'; '17CB' = 'Qualcomm'; '168C' = 'Qualcomm Atheros'; '14E4' = 'Broadcom'
@@ -130,7 +130,7 @@ function Classify-WifiCard([string]$InstanceId, [string]$FriendlyName = '') {
     }
   }
   $vendorName = if ($WifiVendors.ContainsKey($vendor)) { $WifiVendors[$vendor] } elseif ($vendor) { "vendor $vendor" } else { 'unknown vendor' }
-  if (-not $chip) { $chip = if ($device) { "$vendorName $device (not in nekodrop's table)" } else { "$vendorName (not in nekodrop's table)" } }
+  if (-not $chip) { $chip = if ($device) { "$vendorName $device (not in AetherDrop's table)" } else { "$vendorName (not in AetherDrop's table)" } }
   return [pscustomobject]@{
     Bus = $bus; Vendor = $vendorName; VendorId = $vendor; DeviceId = $device
     HardwareId = $(if ($parts.Count -gt 1) { $parts[1] } else { $id })
@@ -149,7 +149,7 @@ function Test-KnownWifiId([string]$InstanceId) {
 # (10EC:C852), with a 4-hex boundary so a 5-digit device ID (e.g. DEV_43F01 or
 # DEV_C8520) can never match a supported 4-digit ID.
 $SupportedCardPattern = '^PCI\\(?:VEN_8086&DEV_(' + ($SupportedIntelIds -join '|') + ')|VEN_10EC&DEV_C852)(?=&|\\|$)'
-$NoSupportedCard = 'This PC has no Wi-Fi card nekodrop supports (Intel AX201, AX200, AX210, AX211, AX411, 9560 on Qu, or Realtek RTL8852CE 10EC:C852); nekodrop cannot run here.'
+$NoSupportedCard = 'This PC has no Wi-Fi card AetherDrop supports (Intel AX201, AX200, AX210, AX211, AX411, 9560 on Qu, or Realtek RTL8852CE 10EC:C852); AetherDrop cannot run here.'
 $ReportUrl = 'https://github.com/zheznanohana/nekodrop/blob/main/installer/report.ps1'
 $IssuesUrl = 'https://github.com/zheznanohana/nekodrop/issues'
 # Adapter names that say wireless. As report.ps1: not bare "Killer" (its
@@ -216,7 +216,7 @@ function Format-UnsupportedCardMessage($Devices) {
   } else {
     $lines += 'No wireless card was found on this PC (a card turned off in the BIOS or by a hardware switch does not show up).'
   }
-  $lines += 'To get a card supported, run the diagnostic report (it needs no nekodrop install):'
+  $lines += 'To get a card supported, run the diagnostic report (it needs no AetherDrop install):'
   $lines += '  download:'
   $lines += "  $ReportUrl"
   $lines += '  run: powershell -ExecutionPolicy Bypass -File report.ps1'
@@ -306,7 +306,7 @@ if ($SelfTest) {
   if ($msg.Contains('00E04C000001')) { $fail += 'message shows the USB serial number' }
   if ($msg.Contains('winawdl')) { $fail += 'winawdl offered for a card it does not drive' }
   $msg = Format-UnsupportedCardMessage ($manyPnp | Select-Object -Skip 3)
-  foreach ($want in 'Intel BE200 (Wi-Fi 7)', 'an Intel device ID nekodrop does not know', 'Qualcomm WCN6855', 'Broadcom BCM4360') {
+  foreach ($want in 'Intel BE200 (Wi-Fi 7)', 'an Intel device ID AetherDrop does not know', 'Qualcomm WCN6855', 'Broadcom BCM4360') {
     if (-not $msg.Contains($want)) { $fail += "message lacks '$want'" }
   }
   $odd = @(Select-WirelessDevices @((Dev 'PCI\VEN_1AE0&DEV_1234&SUBSYS_00001AE0\4&1' 'Contoso Wireless-AC 9000')) @())
@@ -396,7 +396,7 @@ if ($SelfTest) {
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-  Write-Host 'install.ps1 needs administrator rights: run the nekodrop setup, or this script from an administrator PowerShell.'
+  Write-Host 'install.ps1 needs administrator rights: run the AetherDrop setup, or this script from an administrator PowerShell.'
   exit 1
 }
 
@@ -442,14 +442,14 @@ if (-not ($pnpAll | Where-Object { $_.InstanceId -match $SupportedCardPattern })
 
 'Files'
 # Every process running from the install folder, not only ours by name: the
-# AirDrop engine is the bundled python.exe started by nekodrop.exe, and killing
-# nekodrop.exe leaves it running with python\libcrypto-3.dll open, so the copy
+# AirDrop engine is the bundled python.exe started by AetherDrop.exe, and killing
+# AetherDrop.exe leaves it running with python\libcrypto-3.dll open, so the copy
 # below failed with an IOException on that file and left a half-copied folder (#22).
 function Stop-FromTarget {
   $root = [IO.Path]::GetFullPath($Target).TrimEnd('\') + '\'
   # Never by path under a drive root or a folder that is not nekodrop's.
   $byPath = $root.Length -gt 4 -and ((Test-Path (Join-Path $root 'NekoDropService.exe')) -or (Test-Path (Join-Path $root 'python\python.exe')))
-  $ours = @(Get-Process nekodrop, nekodrop-radio, nekodrop-radio-rtl, awdld, NekoDropService -ErrorAction SilentlyContinue) +
+  $ours = @(Get-Process AetherDrop, nekodrop, nekodrop-radio, nekodrop-radio-rtl, awdld, NekoDropService -ErrorAction SilentlyContinue) +
           @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
               try { $byPath -and $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } catch { $false } })
   # Processes started from elsewhere that name the folder on their command
@@ -486,7 +486,7 @@ Step "copy to $Target" {
         $who = ($held | ForEach-Object { "$($_.ProcessName) ($($_.Id))" }) -join ', '
         throw "could not copy to $Target after $try tries: $($_.Exception.Message)" +
               $(if ($who) { " Still running from there: $who." } else { '' }) +
-              ' Close nekodrop (tray icon -> Quit) and run the setup again.'
+              ' Close AetherDrop (tray icon -> Quit) and run the setup again.'
       }
       Start-Sleep -Seconds 2
     }
@@ -546,11 +546,13 @@ Step 'firewall: AirDrop receiver and discovery, from link-local addresses only' 
 Step 'install and start NekoDropService (LocalSystem, automatic)' {
   $exe = Join-Path $Target 'NekoDropService.exe'
   if (-not (Get-Service $Service -ErrorAction SilentlyContinue)) {
-    New-Service -Name $Service -BinaryPathName "`"$exe`"" -DisplayName 'nekodrop AirDrop' `
+    New-Service -Name $Service -BinaryPathName "`"$exe`"" -DisplayName 'AetherDrop AirDrop' `
       -Description 'AirDrop on the built-in Wi-Fi card: owns the card while AirDrop is on.' -StartupType Automatic | Out-Null
     sc.exe failure $Service reset= 86400 actions= restart/5000/restart/30000/""/0 | Out-Null
   }
+  sc.exe config $Service binPath= "`"$exe`"" DisplayName= 'AetherDrop AirDrop' | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Could not update $Service registration ($LASTEXITCODE)" }
   Start-Service $Service
 }
-if ($DryRun) { 'Dry run: nothing was changed.' } else { 'nekodrop is installed.'; Stop-Transcript | Out-Null }
+if ($DryRun) { 'Dry run: nothing was changed.' } else { 'AetherDrop is installed.'; Stop-Transcript | Out-Null }
 exit 0

@@ -178,7 +178,7 @@ public partial class WifiWindow : Window
         DockPanel.SetDock(glyph, Dock.Left);
         line.Children.Add(glyph);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock { Text = ssid, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        text.Children.Add(new TextBlock { Text = ssid, FontWeight = Typography.EmphasisWeight, TextTrimming = TextTrimming.CharacterEllipsis });
         var sub = SecurityText(sec) + (saved ? " · " + L.T("wifi.savedTag") : "") + $" · {dbm} dBm";
         text.Children.Add(new TextBlock { Text = sub, Style = (Style)FindResource("Caption") });
         line.Children.Add(text);

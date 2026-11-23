@@ -7,19 +7,23 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>nekodrop</AssemblyName>
+    <AssemblyName>AetherDrop</AssemblyName>
     <RootNamespace>NekoDrop</RootNamespace>
     <Version>0.1.35</Version>
-    <Product>nekodrop</Product>
-    <Description>nekodrop: AirDrop for Windows</Description>
+    <Product>AetherDrop</Product>
+    <Description>AetherDrop: AirDrop for Windows</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>../assets/nekodrop.ico</ApplicationIcon>
+    <ApplicationIcon>../assets/AetherDrop.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="../assets/AetherDrop.ico" Link="Assets/AetherDrop.ico" />
+    <Resource Include="../assets/AetherDrop-tray.ico" Link="Assets/AetherDrop-tray.ico" />
+    <Resource Include="../assets/AetherDrop-logo.png" Link="Assets/AetherDrop-logo.png" />
+    <Resource Include="../assets/AirDrop_logo_none.png" Link="Assets/AirDrop_logo_none.png" />
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
   </ItemGroup>

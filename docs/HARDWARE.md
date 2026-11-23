@@ -2,7 +2,7 @@
 
 nekodrop drives the Wi-Fi chip itself, from user mode, so every chip family
 needs its own driver. Today that is the Intel 22000 / AX210 family, ported from
-ForbiddenItlwm's `hal_iwx` (see the table in the [README](../README.md#supported-hardware)).
+ForbiddenItlwm's `hal_iwx` (see the table in the [README](../README.md#功能与兼容性)).
 This note records what it would take to support other cards, and why the first
 step is only better detection in the diagnostic report.
 

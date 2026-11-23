@@ -1,6 +1,6 @@
 # 无线网卡兼容性列表
 
-[English](COMPATIBILITY.md) · 简体中文 · [返回 README](../README.zh-CN.md) · [底层架构与多网卡路线（英文）](HARDWARE.md)
+[English](COMPATIBILITY.md) · 简体中文 · [返回 README](../README.md) · [底层架构与多网卡路线（英文）](HARDWARE.md)
 
 nekodrop 在用户态直接驱动无线网卡芯片，使 Windows 原生运行苹果 AWDL 协议。随着项目从 Intel 扩展至跨品牌多网卡支持，所有网卡族均通过模块化 `CardCatalog` 与 `radio_backend.h` 契约接入：
 

@@ -7,9 +7,11 @@ namespace NekoDrop;
 /// <summary>Per-user settings, in %LocalAppData%\nekodrop\settings.json.</summary>
 public sealed class Settings
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsTransient { get; init; }
     public string DeviceName { get; set; } = Environment.MachineName;
     public string SaveFolder { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "nekodrop");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "AetherDrop");
     /// <summary>Ask before storing what someone sends (an AirDrop receiver's default).</summary>
     public bool Ask { get; set; } = true;
     /// <summary>Senders accepted without asking, by the name and model they give.</summary>
@@ -22,7 +24,7 @@ public sealed class Settings
     /// <summary>The AirDrop receiver's mDNS instance name, kept so engine restarts stay one device.</summary>
     public string ServiceId { get; set; } = "";
     /// <summary>Look for a newer release now and then (never installs on its own).</summary>
-    public bool CheckUpdates { get; set; } = true;
+    public bool CheckUpdates { get; set; } = false;
     /// <summary>Count pre-releases as updates (every nekodrop release is one for now).</summary>
     public bool PreviewUpdates { get; set; } = true;
     /// <summary>A version the user chose to skip.</summary>
@@ -37,7 +39,16 @@ public sealed class Settings
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), Options) ?? new();
+            {
+                var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), Options) ?? new();
+                var oldDefault = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "nekodrop");
+                if (string.Equals(settings.SaveFolder.TrimEnd('\\', '/'), oldDefault, StringComparison.OrdinalIgnoreCase))
+                {
+                    settings.SaveFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "AetherDrop");
+                    settings.Save();
+                }
+                return settings;
+            }
         }
         catch (Exception) { }
         return new();
@@ -45,6 +56,7 @@ public sealed class Settings
 
     public void Save()
     {
+        if (IsTransient) return;
         Directory.CreateDirectory(Folder);
         File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Options));
     }

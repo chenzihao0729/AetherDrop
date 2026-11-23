@@ -43,8 +43,7 @@ public partial class SendWindow : Window
         NoDevices.Visibility = A.Model.Devices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var files = A.Model.Files;
         if (files.Count == 0) { SummaryText.Text = L.T("pick.files"); SizeText.Text = ""; return; }
-        var first = Path.GetFileName(files[0].TrimEnd('\\'));
-        SummaryText.Text = files.Count == 1 ? first : L.F("send.summary", first, files.Count, files.Count - 1);
+        SummaryText.Text = L.F("done.items", files.Count);
         long bytes = 0;
         foreach (var f in files)
         {

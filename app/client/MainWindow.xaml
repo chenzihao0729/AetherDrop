@@ -2,190 +2,168 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NekoDrop"
-        Title="nekodrop" Width="560" Height="640" MinWidth="440" MinHeight="480"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="AetherDrop" Width="680" Height="800" MinWidth="540" MinHeight="520"
+        Icon="{x:Static local:Branding.WindowIcon}" WindowStyle="None"
         WindowStartupLocation="CenterScreen" AllowDrop="True"
-        Background="{DynamicResource Window}" Foreground="{DynamicResource Text}"
+        Background="{DynamicResource ToneF8FBFE}" Foreground="{DynamicResource Tone1C2024}" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType"
         FontFamily="{DynamicResource UiFont}" FontSize="14">
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="0" CornerRadius="0" GlassFrameThickness="0" ResizeBorderThickness="5"/>
+  </shell:WindowChrome.WindowChrome>
   <Window.Resources>
-    <Style x:Key="CardBox" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource Card}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource CardStroke}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="8"/>
-      <Setter Property="Padding" Value="16,12"/>
-    </Style>
-    <Style x:Key="Caption" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
-    </Style>
-    <Style x:Key="Section" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Margin" Value="4,20,0,8"/>
-    </Style>
-    <Style x:Key="AccentButton" TargetType="Button">
-      <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
-      <Setter Property="Background" Value="{DynamicResource Accent}"/>
-      <Setter Property="Padding" Value="16,6"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.9"/></Trigger>
-              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.8"/></Trigger>
-              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.4"/></Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style x:Key="Subtle" TargetType="Button" BasedOn="{StaticResource AccentButton}">
-      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="Background" Value="{DynamicResource Card}"/>
-    </Style>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="SettingsStyles.xaml"/></ResourceDictionary.MergedDictionaries>
+      <SolidColorBrush x:Key="AccentText" Color="{DynamicResource ToneColor007AFF}"/>
+      <Style x:Key="Section" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Margin" Value="0,0,0,12"/>
+      </Style>
+      <Style TargetType="ProgressBar">
+        <Setter Property="Background" Value="{DynamicResource ToneE8EFF6}"/><Setter Property="Foreground" Value="{DynamicResource Tone007AFF}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar">
+          <Grid x:Name="PART_Track"><Border Background="{TemplateBinding Background}" CornerRadius="2"/>
+            <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="2"/>
+          </Grid>
+        </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style x:Key="DeviceTile" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Width" Value="144"/><Setter Property="Height" Value="140"/>
+        <Setter Property="Margin" Value="0,0,10,10"/><Setter Property="Padding" Value="10"/>
+        <Setter Property="Background" Value="{DynamicResource ToneF8FBFE}"/>
+      </Style>
+    </ResourceDictionary>
   </Window.Resources>
-
-  <Grid Margin="24,16,24,20">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-    </Grid.RowDefinitions>
-
-    <!-- Status -->
-    <StackPanel Grid.Row="0" Orientation="Horizontal">
-      <TextBlock FontFamily="{DynamicResource IconFont}" Text="&#xE701;" FontSize="20" Foreground="{DynamicResource AccentText}" VerticalAlignment="Center"/>
-      <StackPanel Margin="12,0,0,0">
-        <TextBlock Text="{Binding Status}" FontSize="16" FontWeight="SemiBold"/>
-        <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
-      </StackPanel>
-    </StackPanel>
-
-    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0">
-      <StackPanel>
-        <!-- Incoming requests -->
-        <ItemsControl ItemsSource="{Binding Requests}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate>
-              <Border Style="{StaticResource CardBox}" Margin="0,12,0,0">
-                <Grid>
+  <Border BorderBrush="{DynamicResource ToneC5D1DC}" BorderThickness="1" CornerRadius="8">
+    <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="{DynamicResource ToneColorFDFEFF}" Offset="0"/><GradientStop Color="{DynamicResource ToneColorF5FAFC}" Offset="1"/></LinearGradientBrush></Border.Background>
+    <Grid>
+      <Grid.RowDefinitions><RowDefinition Height="86"/><RowDefinition/><RowDefinition Height="68"/></Grid.RowDefinitions>
+      <Grid Margin="24,0" Background="Transparent" MouseLeftButtonDown="Header_MouseLeftButtonDown">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition/><ColumnDefinition Width="32"/><ColumnDefinition Width="32"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
+        <Image Source="{x:Static local:Branding.TrayPanelLogo}" Width="36" Height="36" HorizontalAlignment="Left" RenderOptions.BitmapScalingMode="HighQuality"/>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="AetherDrop" FontSize="21" FontWeight="Bold"/>
+          <TextBlock x:Name="MachineText" Style="{StaticResource Caption}"/>
+        </StackPanel>
+        <Button Grid.Column="2" Style="{StaticResource ChromeButton}" Click="Minimize_Click" AutomationProperties.Name="{local:T window.minimize}"><Path Data="M 1,7 L 13,7" Width="14" Height="14" Stroke="{DynamicResource Tone6C737A}" StrokeThickness="1.5"/></Button>
+        <Button Grid.Column="3" Style="{StaticResource ChromeButton}" Click="Maximize_Click" AutomationProperties.Name="{local:T window.maximize}"><Path Data="M 2,2 L 12,2 L 12,12 L 2,12 Z" Width="14" Height="14" Stroke="{DynamicResource Tone6C737A}" StrokeThickness="1.3"/></Button>
+        <Button Grid.Column="4" Style="{StaticResource ChromeButton}" Click="Close_Click" AutomationProperties.Name="{local:T window.close}"><Path Data="M 1,1 L 13,13 M 13,1 L 1,13" Width="14" Height="14" Stroke="{DynamicResource Tone6C737A}" StrokeThickness="1.5"/></Button>
+      </Grid>
+      <Border Grid.Row="1" BorderBrush="{DynamicResource ToneDDE6EE}" BorderThickness="0,1,0,1">
+        <ScrollViewer x:Name="MainScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+          <StackPanel Margin="24,18,24,8">
+            <Border Style="{StaticResource CardBox}" Background="{DynamicResource ToneEDF5FF}" BorderBrush="{DynamicResource ToneD3E5FC}">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="38"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <Border Width="28" Height="28" Background="{DynamicResource ToneD6E8FF}" CornerRadius="14" VerticalAlignment="Center" HorizontalAlignment="Left"><TextBlock Text="&#xE701;" FontFamily="{DynamicResource IconFont}" Foreground="{DynamicResource Tone007AFF}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                <StackPanel Grid.Column="1"><TextBlock Text="{Binding Status}" FontSize="15" FontWeight="Bold"/><TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}"/></StackPanel>
+              </Grid>
+            </Border>
+            <ItemsControl ItemsSource="{Binding Requests}">
+              <ItemsControl.ItemTemplate><DataTemplate>
+                <Border Style="{StaticResource CardBox}" BorderBrush="{DynamicResource ToneB9D7FF}">
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,14,0">
+                      <TextBlock FontSize="13"><Run Text="{Binding Sender, Mode=OneWay}" FontWeight="Bold"/><Run Text="{local:T main.wants}"/><Run Text="{Binding What, Mode=OneWay}"/></TextBlock>
+                      <TextBlock Text="{Binding Status}" Style="{StaticResource Caption}"/>
+                      <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="4" Margin="0,10,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                      <Button Content="{local:T decline}" Click="Decline_Click" Tag="{Binding Id}" Width="80" Margin="0,0,6,0"/>
+                      <Button Content="{local:T accept}" Style="{StaticResource Primary}" Click="Accept_Click" Tag="{Binding Id}" Width="80"/>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Border Style="{StaticResource CardBox}">
+              <StackPanel>
+                <TextBlock Text="{local:T main.nearby}" Style="{StaticResource Section}"/>
+                <Border x:Name="NoDevices" Background="{DynamicResource ToneF5F9FD}" CornerRadius="8" Padding="16">
+                  <TextBlock Style="{StaticResource Caption}" Margin="0" Text="{local:T main.looking}"/>
+                </Border>
+                <ItemsControl ItemsSource="{Binding Devices}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate><DataTemplate>
+                    <Button Style="{StaticResource DeviceTile}" Click="Device_Click" Tag="{Binding}">
+                      <StackPanel Width="116">
+                        <Grid Width="46" Height="46" Margin="0,0,0,8">
+                          <Ellipse Fill="{DynamicResource ToneD6E8FF}"/>
+                          <TextBlock FontFamily="{DynamicResource IconFont}" Text="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Tone007AFF}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" FontSize="13" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Status}" Style="{StaticResource Caption}" TextAlignment="Center" MaxHeight="36"/>
+                      </StackPanel>
+                    </Button>
+                  </DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}">
+              <StackPanel>
+                <Grid Margin="0,0,0,14">
                   <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                  <StackPanel>
-                    <TextBlock><Run Text="{Binding Sender, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="{local:T main.wants}"/><Run Text="{Binding What, Mode=OneWay}"/></TextBlock>
-                    <TextBlock Text="{Binding Status}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
-                    <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="3" Margin="0,8,0,0" Foreground="{DynamicResource Accent}" BorderThickness="0"/>
-                  </StackPanel>
-                  <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                    <Button Content="{local:T accept}" Style="{StaticResource AccentButton}" Click="Accept_Click" Tag="{Binding Id}"/>
-                    <Button Content="{local:T decline}" Style="{StaticResource Subtle}" Click="Decline_Click" Tag="{Binding Id}" Margin="8,0,0,0"/>
+                  <TextBlock Text="{local:T main.files}" FontWeight="Bold" VerticalAlignment="Center"/>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="{local:T main.clear}" Click="Clear_Click" Margin="0,0,6,0"/>
+                    <Button Content="{local:T main.add}" Style="{StaticResource Primary}" Click="Add_Click"/>
                   </StackPanel>
                 </Grid>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-        <!-- Devices -->
-        <TextBlock Text="{local:T main.nearby}" Style="{StaticResource Section}"/>
-        <TextBlock x:Name="NoDevices" Style="{StaticResource Caption}" Margin="4,0,0,0" TextWrapping="Wrap"
-                   Text="{local:T main.looking}"/>
-        <ItemsControl ItemsSource="{Binding Devices}">
-          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate>
-              <Button Click="Device_Click" Tag="{Binding}" Margin="0,0,8,8" Cursor="Hand" Foreground="{DynamicResource Text}" ToolTip="{local:T main.deviceTip}">
-                <Button.Template>
-                  <ControlTemplate TargetType="Button">
-                    <Border x:Name="c" Width="120" Height="128" CornerRadius="8" Background="{DynamicResource Card}"
-                            BorderBrush="{DynamicResource CardStroke}" BorderThickness="1" Padding="8">
-                      <ContentPresenter/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="c" Property="Background" Value="{DynamicResource CardHover}"/></Trigger>
-                    </ControlTemplate.Triggers>
-                  </ControlTemplate>
-                </Button.Template>
-                <StackPanel HorizontalAlignment="Center">
-                  <Grid Width="52" Height="52" Margin="0,4,0,6">
-                    <Ellipse Fill="{DynamicResource Accent}" Opacity="0.15"/>
-                    <TextBlock FontFamily="{DynamicResource IconFont}" Text="{Binding Glyph}" FontSize="24"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource AccentText}"/>
+                <Border x:Name="DropZone" Background="{DynamicResource ToneF5F9FD}" BorderBrush="{DynamicResource ToneD2E0ED}" BorderThickness="1" CornerRadius="9" Padding="18" MinHeight="112">
+                  <Grid>
+                    <StackPanel x:Name="DropHint" VerticalAlignment="Center">
+                      <TextBlock Text="&#xE898;" FontFamily="{DynamicResource IconFont}" Foreground="{DynamicResource Tone007AFF}" FontSize="25" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                      <TextBlock Text="{local:T main.dropHint}" Style="{StaticResource Caption}" Margin="0" TextAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel x:Name="SelectedFiles" VerticalAlignment="Center" Visibility="Collapsed">
+                      <TextBlock Text="&#xE8A5;" FontFamily="{DynamicResource IconFont}" Foreground="{DynamicResource Tone007AFF}" FontSize="25" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                      <TextBlock x:Name="FileCountText" FontWeight="Bold" HorizontalAlignment="Center"/>
+                      <TextBlock Text="{local:T main.sendHint}" Style="{StaticResource Caption}" TextAlignment="Center"/>
+                    </StackPanel>
                   </Grid>
-                  <TextBlock Text="{Binding Name}" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
-                  <TextBlock Text="{Binding Status}" Style="{StaticResource Caption}" TextAlignment="Center" TextWrapping="Wrap" MaxHeight="32"/>
-                </StackPanel>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-        <!-- Files to send -->
-        <Grid Margin="0,12,0,0">
-          <TextBlock Text="{local:T main.files}" Style="{StaticResource Section}" Margin="4,8,0,8"/>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-            <Button Content="{local:T main.add}" Style="{StaticResource Subtle}" Click="Add_Click"/>
-            <Button Content="{local:T main.clear}" Style="{StaticResource Subtle}" Click="Clear_Click" Margin="8,0,0,0"/>
+                </Border>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}">
+              <StackPanel>
+                <TextBlock Text="{local:T main.received}" Style="{StaticResource Section}"/>
+                <TextBlock x:Name="NoReceived" Text="{local:T main.noReceived}" Style="{StaticResource Caption}" Margin="0"/>
+                <ItemsControl ItemsSource="{Binding ReceivedFiles}">
+                  <ItemsControl.ItemTemplate><DataTemplate>
+                    <Border Background="{DynamicResource ToneF5F9FD}" CornerRadius="8" Margin="0,0,0,6" Padding="12" Cursor="Hand" MouseLeftButtonUp="Received_Click" Tag="{Binding Path}">
+                      <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="&#xE8A5;" FontFamily="{DynamicResource IconFont}" FontSize="19" Foreground="{DynamicResource Tone007AFF}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1"><TextBlock Text="{local:T file.received}" FontSize="13" FontWeight="Bold"/><TextBlock Style="{StaticResource Caption}"><Run Text="{local:T main.from}"/><Run Text="{Binding From, Mode=OneWay}"/></TextBlock></StackPanel>
+                        <TextBlock Grid.Column="2" Style="{StaticResource Caption}" VerticalAlignment="Center" Text="{Binding When, StringFormat=HH:mm}"/>
+                      </Grid>
+                    </Border>
+                  </DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border BorderBrush="{DynamicResource ToneE2EAF2}" BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="0,14,0,0">
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock FontFamily="{DynamicResource IconFont}" Text="&#xE8B7;" FontSize="19" Foreground="{DynamicResource Tone6C737A}" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="{local:T main.saveTo}" Style="{StaticResource Caption}" Margin="0"/><TextBlock x:Name="FolderText" FontSize="12" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/></StackPanel>
+                    <Button Grid.Column="2" Content="{local:T main.change}" Click="ChangeFolder_Click" VerticalAlignment="Center"/>
+                  </Grid>
+                </Border>
+              </StackPanel>
+            </Border>
           </StackPanel>
-        </Grid>
-        <Border Background="{DynamicResource DropWell}" CornerRadius="8" BorderBrush="{DynamicResource Divider}" BorderThickness="1" MinHeight="88" Padding="12">
-          <Grid>
-            <TextBlock x:Name="DropHint" Text="{local:T main.dropHint}"
-                       Style="{StaticResource Caption}" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
-            <ItemsControl ItemsSource="{Binding Files}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <DockPanel Margin="0,2">
-                    <TextBlock FontFamily="{DynamicResource IconFont}" Text="&#xE8A5;" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/>
-                  </DockPanel>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </Grid>
-        </Border>
-
-        <!-- Received -->
-        <TextBlock Text="{local:T main.received}" Style="{StaticResource Section}"/>
-        <ItemsControl ItemsSource="{Binding ReceivedFiles}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate>
-              <Border Style="{StaticResource CardBox}" Margin="0,0,0,6" Padding="12,8" Cursor="Hand" MouseLeftButtonUp="Received_Click" Tag="{Binding Path}">
-                <DockPanel>
-                  <TextBlock DockPanel.Dock="Right" Style="{StaticResource Caption}" VerticalAlignment="Center"
-                             Text="{Binding When, StringFormat=HH:mm}"/>
-                  <StackPanel>
-                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Style="{StaticResource Caption}"><Run Text="{local:T main.from}"/><Run Text="{Binding From, Mode=OneWay}"/></TextBlock>
-                  </StackPanel>
-                </DockPanel>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <Border Style="{StaticResource CardBox}" Margin="0,12,0,0" Padding="12,8">
-          <DockPanel>
-            <Button DockPanel.Dock="Right" Content="{local:T main.change}" Style="{StaticResource Subtle}" Click="ChangeFolder_Click" VerticalAlignment="Center" Margin="8,0,0,0"/>
-            <TextBlock DockPanel.Dock="Left" FontFamily="{DynamicResource IconFont}" Text="&#xE8B7;" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <StackPanel VerticalAlignment="Center">
-              <TextBlock Text="{local:T main.saveTo}" Style="{StaticResource Caption}"/>
-              <TextBlock x:Name="FolderText" TextTrimming="CharacterEllipsis"/>
-            </StackPanel>
-          </DockPanel>
-        </Border>
-        <TextBlock HorizontalAlignment="Left" Margin="4,12,0,0">
-          <Hyperlink Click="OpenFolder_Click" Foreground="{DynamicResource AccentText}"><Run Text="{local:T main.openFolder}"/></Hyperlink>
-          <Run Text="   "/>
-          <Hyperlink Click="Settings_Click" Foreground="{DynamicResource AccentText}"><Run Text="{local:T main.settings}"/></Hyperlink>
-          <Run Text="   "/>
-          <Hyperlink Click="Wifi_Click" Foreground="{DynamicResource AccentText}"><Run Text="{local:T wifi.tray}"/></Hyperlink>
-          <Run Text="   "/>
-          <Hyperlink Click="Report_Click" Foreground="{DynamicResource AccentText}"><Run Text="{local:T main.report}"/></Hyperlink>
-        </TextBlock>
-      </StackPanel>
-    </ScrollViewer>
-  </Grid>
+        </ScrollViewer>
+      </Border>
+      <Grid Grid.Row="2" Margin="24,0">
+        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <WrapPanel VerticalAlignment="Center">
+          <Button Content="{local:T main.openFolder}" Click="OpenFolder_Click" Margin="0,0,6,0" Padding="10,6"/>
+          <Button Content="{local:T main.settings}" Click="Settings_Click" Margin="0,0,6,0" Padding="10,6"/>
+          <Button Content="{local:T wifi.tray}" Click="Wifi_Click" Padding="10,6"/>
+        </WrapPanel>
+        <Button Grid.Column="1" Content="{local:T main.report}" Click="Report_Click" Padding="10,6" VerticalAlignment="Center"/>
+      </Grid>
+    </Grid>
+  </Border>
 </Window>

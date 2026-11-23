@@ -4,3 +4,9 @@
 /.claude/
 /app/*/bin/
 /app/*/obj/
+/tests/*/bin/
+/tests/*/obj/
+
+# Reproducible Python bytecode caches
+__pycache__/
+*.py[cod]

@@ -16,6 +16,12 @@ public sealed class App : Application
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.Contains("--ui-debug"))
+        {
+            var debugApp = new App(uiDebugMode: true) { ShutdownMode = ShutdownMode.OnMainWindowClose };
+            debugApp._startArgs = args;
+            return debugApp.Run();
+        }
         if (args.Contains("--unregister")) { Shell.Unregister(); return 0; }
         var pipeName = "nekodrop-ui-" + WindowsIdentity.GetCurrent().User?.Value;
         using var single = new Mutex(true, @"Local\nekodrop-ui", out var first);
@@ -42,12 +48,24 @@ public sealed class App : Application
     string[] _startArgs = [];
     public static App Instance => (App)Current;
     public AppModel Model { get; } = new();
-    public Settings Settings { get; } = Settings.Load();
+    public bool UiDebugMode { get; }
+    public Settings Settings { get; }
+
+    public App(bool uiDebugMode = false)
+    {
+        UiDebugMode = uiDebugMode;
+        Settings = uiDebugMode ? new Settings { IsTransient = true, Language = "zh", Discoverable = true, StartWithWindows = false } : Settings.Load();
+    }
     public ServiceLink Service { get; } = new();
     public Engine Engine { get; } = new();
     readonly Wake _wake = new();
     Forms.NotifyIcon? _tray;
     MainWindow? _window;
+    TrayWindow? _trayWindow;
+    bool _reopenTray;
+    internal bool IsTrayIconPoint(System.Drawing.Point point) => Native.TrayIconBounds(_tray)?.Contains(point) == true;
+    readonly List<ReceiveWindow> _receiveCards = [];
+    bool _resettingReceiveCards;
     readonly Dictionary<string, Request> _requests = [];
     readonly Dictionary<string, string> _sendTarget = [];
 
@@ -55,6 +73,18 @@ public sealed class App : Application
     {
         base.OnStartup(e);
         L.Use(Settings.Language);
+        if (UiDebugMode)
+        {
+            var lang = Array.IndexOf(_startArgs, "--lang");
+            if (lang >= 0 && lang + 1 < _startArgs.Length) L.Use(_startArgs[lang + 1]);
+            Resources.MergedDictionaries.Add(Theme.Build());
+            var session = new UiDebugSession(this);
+            var panel = new UiDebugWindow(session);
+            MainWindow = panel;
+            panel.Closed += (_, _) => session.Dispose();
+            panel.Show();
+            return;
+        }
         var snap = Array.IndexOf(_startArgs, "--snapshot");
         if (snap >= 0 && snap + 1 < _startArgs.Length) { Snapshot(_startArgs[snap + 1]); return; }
         Shell.SetIdentity();
@@ -89,7 +119,7 @@ public sealed class App : Application
 
     void StartEngine()
     {
-        if (Engine.Running) return;
+        if (UiDebugMode || Engine.Running) return;
         try { Identity.Ensure(); } catch (Exception e) { Model.Detail = L.T("err.identity") + e.Message; }
         _engineIf = AwdlIndex();
         _notReceivingSince = null;
@@ -158,17 +188,70 @@ public sealed class App : Application
     {
         _tray = new Forms.NotifyIcon
         {
-            Text = "nekodrop",
-            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application,
+            Text = Branding.Name,
+            Icon = Branding.TrayIcon(),
             Visible = true,
         };
-        _tray.MouseClick += (_, a) => { if (a.Button == Forms.MouseButtons.Left) ShowWindow(); };
+        _tray.MouseDown += (_, a) =>
+        {
+            // Respond to the physical press; MouseClick can be suppressed by
+            // NotifyIcon's double-click tracking. The double-click's second
+            // MouseDown has Clicks=2 and must not reopen the popup.
+            if (a.Button == Forms.MouseButtons.Left && a.Clicks == 1) ShowTray();
+        };
+        _tray.MouseDoubleClick += (_, a) =>
+        {
+            if (a.Button != Forms.MouseButtons.Left) return;
+            _reopenTray = false; _trayWindow?.Close(); ShowWindow();
+        };
+        _tray.MouseUp += (_, a) => { if (a.Button == Forms.MouseButtons.Right) { _reopenTray = false; _trayWindow?.Dismiss(); } };
         _tray.ContextMenuStrip = BuildMenu();
+    }
+
+    public void InjectUiDebugEvent(JsonObject message)
+    {
+        if (!UiDebugMode) throw new InvalidOperationException("Simulation is only available in --ui-debug mode.");
+        OnEngine(message);
+    }
+
+    public void ShowUiDebugTray()
+    {
+        if (!UiDebugMode) throw new InvalidOperationException("UI debug mode is not enabled.");
+        ShowTray();
+    }
+
+    void ShowTray()
+    {
+        if (_trayWindow is { IsClosing: true }) { _reopenTray = !_reopenTray; return; }
+        if (_trayWindow is { IsVisible: true }) { _reopenTray = false; _trayWindow.Dismiss(); return; }
+        if (_trayWindow is null)
+        {
+            _trayWindow = new TrayWindow(this);
+            _trayWindow.Closed += (_, _) =>
+            {
+                _trayWindow = null;
+                if (_reopenTray) { _reopenTray = false; ShowTray(); }
+            };
+        }
+        _trayWindow.OpenAt(Native.TrayIconCenter(_tray));
+    }
+
+    void ShowReceive(Request request)
+    {
+        var card = new ReceiveWindow(request, Answer);
+        _receiveCards.Add(card);
+        card.Closed += (_, _) =>
+        {
+            _receiveCards.Remove(card);
+            if (!_resettingReceiveCards && _receiveCards.FirstOrDefault() is { IsVisible: false } next) next.Present();
+        };
+        // Queue invitations rather than letting simultaneous requests cover each other.
+        if (_receiveCards.Count == 1) card.Present();
     }
 
     Forms.ContextMenuStrip BuildMenu()
     {
-        var menu = new Forms.ContextMenuStrip();
+        var menu = new Forms.ContextMenuStrip { Font = Typography.MenuFont };
         menu.Items.Add(L.T("tray.open"), null, (_, _) => ShowWindow());
         menu.Items.Add(new Forms.ToolStripSeparator());
         var receive = new Forms.ToolStripMenuItem(L.T("tray.receive")) { CheckOnClick = true, Checked = Settings.Discoverable };
@@ -192,6 +275,7 @@ public sealed class App : Application
         menu.Items.Add(L.T("tray.report"), null, (_, _) => RunReport());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(L.T("tray.quit"), null, (_, _) => Quit());
+        TrayMenuRenderer.Apply(menu);
         return menu;
     }
 
@@ -205,7 +289,7 @@ public sealed class App : Application
         var script = Path.Combine(AppContext.BaseDirectory, "report.ps1");
         if (!File.Exists(script))
         {
-            MessageBox.Show(L.T("report.missing"), "nekodrop");
+            MessageBox.Show(L.T("report.missing"), Branding.Name);
             return;
         }
         try
@@ -213,7 +297,7 @@ public sealed class App : Application
             Process.Start(new ProcessStartInfo("powershell.exe",
                 $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\"") { UseShellExecute = true });
         }
-        catch (Exception e) { MessageBox.Show(e.Message, "nekodrop"); }
+        catch (Exception e) { MessageBox.Show(e.Message, Branding.Name); }
     }
 
     public MainWindow? Window => _window;
@@ -260,7 +344,10 @@ public sealed class App : Application
         Model.ReceivedFiles.Add(new Received { Name = "IMG_0042.HEIC", Path = "", From = "iPhone" });
         foreach (var f in _startArgs.SkipWhile(a => a != "--send").Skip(1).TakeWhile(a => !a.StartsWith("--")))
             Model.Files.Add(f);
-        var windows = new (string Name, Window W)[] { ("send", new SendWindow()), ("main", new MainWindow()), ("settings", new SettingsWindow()) };
+        var windows = new (string Name, Window W)[] { ("send", new SendWindow()), ("main", new MainWindow()), ("settings", new SettingsWindow()), ("wifi", new WifiWindow()),
+            ("tray", new TrayWindow(this)),
+            ("receive", new ReceiveWindow(new Request { Id = "preview", Sender = "iPhone", Model = "iPhone15,2", What = "IMG_0074.JPG" }, (_, _) => { })),
+            ("progress", ProgressPreview()), ("complete", ReceiveWindow.CreateCompletedPreview()), ("failed", ReceiveWindow.CreateFailedPreview()) };
         if (_startArgs.Contains("--live"))
         {
             // On screen, captured from the screen: shows the real backdrop (Mica).
@@ -279,7 +366,7 @@ public sealed class App : Application
             var visual = new System.Windows.Media.DrawingVisual();
             using (var dc = visual.RenderOpen())
             {
-                dc.DrawRectangle((System.Windows.Media.Brush)Resources["Window"], null, new Rect(0, 0, width, height));
+                dc.DrawRectangle(w is FloatingCard ? System.Windows.Media.Brushes.Transparent : (System.Windows.Media.Brush)Resources["Window"], null, new Rect(0, 0, width, height));
                 dc.DrawRectangle(new System.Windows.Media.VisualBrush(root), null, new Rect(0, 0, width, height));
             }
             var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
@@ -290,6 +377,11 @@ public sealed class App : Application
             w.Close();
         }
         Shutdown();
+    }
+
+    static ReceiveWindow ProgressPreview()
+    {
+        return ReceiveWindow.CreatePreview();
     }
 
     SendWindow? _send;
@@ -317,14 +409,18 @@ public sealed class App : Application
     {
         L.Use(Settings.Language);
         if (_tray is not null) { var old = _tray.ContextMenuStrip; _tray.ContextMenuStrip = BuildMenu(); old?.Dispose(); }
-        try { Shell.Register(Settings.StartWithWindows); } catch (Exception) { }
+        if (!UiDebugMode) { try { Shell.Register(Settings.StartWithWindows); } catch (Exception) { } }
         if (_window is not null) { var w = _window; _window = null; w.Close(); ShowWindow(); }
     }
+
+    public event Action? ReceivingChanged;
 
     public void SetDiscoverable(bool on)
     {
         Settings.Discoverable = on;
         Settings.Save();
+        ReceivingChanged?.Invoke();
+        if (UiDebugMode) return;
         if (on) { StartEngine(); Service.Wake(); }
         else Engine.Dispose();
     }
@@ -351,7 +447,7 @@ public sealed class App : Application
         _wake.Dispose();
         Engine.Dispose();
         Service.Dispose();
-        if (_tray is not null) _tray.Visible = false;
+        if (_tray is not null) { _tray.Visible = false; _tray.Icon?.Dispose(); _tray.Dispose(); }
         Shutdown();
     }
 
@@ -458,7 +554,11 @@ public sealed class App : Application
 
     public void Answer(string id, bool accept)
     {
+        if (!_requests.TryGetValue(id, out var request) || request.Answered) return;
+        request.Answered = true;
         Engine.Answer(id, accept);
+        var card = _receiveCards.FirstOrDefault(x => x.RequestId == id);
+        if (accept) card?.Accept(); else card?.Dismiss();
         if (_requests.TryGetValue(id, out var r)) r.Status = accept ? L.T("req.receiving") : L.T("req.declined");
         if (!accept && _requests.Remove(id, out var gone)) Model.Requests.Remove(gone);
     }
@@ -537,7 +637,7 @@ public sealed class App : Application
         };
         Model.Detail = radio == "error" ? (string?)o["detail"] ?? "" :
             wifi == "" ? "" : wifi.StartsWith("unsupported") ? "Wi-Fi：" + wifi[13..] : "Wi-Fi：" + WifiText(wifi);
-        if (_tray is not null) _tray.Text = "nekodrop – " + Model.Status;
+        if (_tray is not null) _tray.Text = Branding.Name + " – " + Model.Status;
     }
 
     static string WifiText(string s) => s switch
@@ -559,6 +659,10 @@ public sealed class App : Application
                  * moves channel and re-creates awdl0) knows no peers and is not
                  * looking: the old one's devices go, and an open window looks
                  * again (#9: the send window stayed empty after a move to 149). */
+                _resettingReceiveCards = true;
+                foreach (var card in _receiveCards.ToArray()) card.Close();
+                _receiveCards.Clear(); _requests.Clear(); Model.Requests.Clear();
+                _resettingReceiveCards = false;
                 foreach (var stale in Model.Devices.Where(x => !x.Busy).ToList()) Model.Devices.Remove(stale);
                 if (_send is not null || _window is not null) Engine.Look(true);
                 break;
@@ -585,18 +689,36 @@ public sealed class App : Application
                 var model = (string?)o["model"] ?? "";
                 var files = o["files"] as JsonArray;
                 var what = Describe(files);
-                if (Settings.AlwaysAccept.Contains($"{sender}|{model}")) { Engine.Answer(id, true); break; }
                 var r = new Request { Id = id, Sender = sender, Model = model, What = what };
                 _requests[id] = r;
                 Model.Requests.Insert(0, r);
-                Shell.AskToast(id, sender, what);
+                ShowReceive(r);
+                if ((bool?)o["waits"] == false || Settings.AlwaysAccept.Contains($"{sender}|{model}")) Answer(id, true);
                 break;
             }
+            case "answered":
+                if (_requests.TryGetValue(id, out var answered))
+                {
+                    if ((string?)o["how"] == "accepted")
+                    {
+                        answered.Answered = true;
+                        answered.Status = L.T("req.receiving");
+                        _receiveCards.FirstOrDefault(x => x.RequestId == id)?.Accept();
+                    }
+                    else
+                    {
+                        _requests.Remove(id); Model.Requests.Remove(answered);
+                        _receiveCards.FirstOrDefault(x => x.RequestId == id)?.Dismiss();
+                    }
+                }
+                break;
             case "incoming":
                 if (_requests.TryGetValue(id, out var inc))
                 {
                     var total = (double?)o["total"] ?? 0;
-                    inc.Progress = total > 0 ? ((double?)o["done"] ?? 0) / total : 0;
+                    var done = (double?)o["done"] ?? 0;
+                    inc.Progress = total > 0 ? done / total : 0;
+                    _receiveCards.FirstOrDefault(x => x.RequestId == id)?.Update(done, total);
                     inc.Status = L.T("req.receiving");
                 }
                 Service.Touch();
@@ -604,7 +726,7 @@ public sealed class App : Application
             case "stored":
             {
                 var folder = (string?)o["folder"] ?? Settings.SaveFolder;
-                var from = _requests.TryGetValue(id, out var st) ? st.Sender : "AirDrop";
+                var from = _requests.TryGetValue(id, out var st) ? st.Sender : "隔空投送";
                 if (st is not null) { _requests.Remove(id); Model.Requests.Remove(st); }
                 if (o["files"] is JsonArray stored)
                     foreach (var f in stored)
@@ -612,14 +734,19 @@ public sealed class App : Application
                         var name = f is JsonObject fo ? (string?)fo["name"] ?? "" : (string?)f ?? "";
                         Model.ReceivedFiles.Insert(0, new Received { Name = name, Path = Path.Combine(folder, name), From = from });
                     }
-                Shell.DoneToast(id, L.F("done.received", from), L.F("done.savedTo", folder), folder);
+                var finishedCard = _receiveCards.FirstOrDefault(x => x.RequestId == id);
+                if (finishedCard is not null) finishedCard.Finish(true, "", UiDebugMode
+                    ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : folder);
+                else if (!UiDebugMode) Shell.DoneToast(id, L.F("done.received", from), L.F("done.savedTo", folder), folder);
                 break;
             }
             case "lost":
                 if (_requests.Remove(id, out var lost))
                 {
                     Model.Requests.Remove(lost);
-                    Shell.DoneToast(id, L.F("done.lost", lost.Sender), (string?)o["reason"] ?? "", null);
+                    var failedCard = _receiveCards.FirstOrDefault(x => x.RequestId == id);
+                    if (failedCard is not null) failedCard.Finish(false, (string?)o["reason"] ?? FloatingCard.Text("传输中断", "Transfer interrupted"));
+                    else if (!UiDebugMode) Shell.DoneToast(id, L.F("done.lost", lost.Sender), (string?)o["reason"] ?? "", null);
                 }
                 break;
             case "send":
@@ -659,6 +786,7 @@ public sealed class App : Application
                 break;
         }
     }
+
 
     static string Describe(JsonArray? files)
     {

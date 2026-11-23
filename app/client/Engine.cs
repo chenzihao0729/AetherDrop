@@ -38,12 +38,14 @@ public sealed class Engine : IDisposable
 
     static string? Script()
     {
-        foreach (var candidate in new[]
-                 {
-                     Path.Combine(Root, "airdrop", "engine.py"),
-                     Path.GetFullPath(Path.Combine(Root, @"..\..\..\..\..\third_party\winawdl\airdrop\engine.py")),
-                 })
+        var bundled = Path.Combine(Root, "airdrop", "engine.py");
+        if (File.Exists(bundled)) return bundled;
+        // Build outputs include configuration/TFM/RID folders; their depth varies.
+        for (var directory = new DirectoryInfo(Root); directory is not null; directory = directory.Parent)
+        {
+            var candidate = Path.Combine(directory.FullName, "third_party", "winawdl", "airdrop", "engine.py");
             if (File.Exists(candidate)) return candidate;
+        }
         return null;
     }
 

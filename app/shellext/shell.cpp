@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// nekodrop's entry in the Windows 11 Explorer context menu ("用 nekodrop 发送"
+// nekodrop's entry in the Windows 11 Explorer context menu ("用 AetherDrop 发送"
 // on the first level, not under "Show more options"). Windows 11 only shows
 // verbs from packaged apps there, so this IExplorerCommand is declared by a
 // sparse package (installer\sparse\AppxManifest.xml) whose external location
-// is the install folder. Invoking it starts nekodrop.exe --send with the
+// is the install folder. Invoking it starts AetherDrop.exe --send with the
 // selected paths; the client takes it from there.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -27,7 +27,7 @@ static std::wstring folder()
     return s.substr(0, s.find_last_of(L'\\'));
 }
 
-static std::wstring exe() { return folder() + L"\\nekodrop.exe"; }
+static std::wstring exe() { return folder() + L"\\AetherDrop.exe"; }
 
 // The client's language choice (HKCU\Software\nekodrop, Language = zh | en),
 // else the Windows display language.
@@ -83,7 +83,7 @@ public:
 
     IFACEMETHODIMP GetTitle(IShellItemArray *, LPWSTR *name) override
     {
-        return SHStrDupW(chinese() ? L"用 nekodrop 发送" : L"Send with nekodrop", name);
+        return SHStrDupW(chinese() ? L"用 AetherDrop 发送" : L"Send with AetherDrop", name);
     }
     IFACEMETHODIMP GetIcon(IShellItemArray *, LPWSTR *icon) override
     {

@@ -12,9 +12,9 @@ namespace NekoDrop;
 public static class Shell
 {
     /// <summary>The app's identity for notifications; the Start menu shortcut carries the same one.</summary>
-    public const string Aumid = "nekodrop.app";
+    public const string Aumid = "AetherDrop.app";
 
-    static string Exe => Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "nekodrop.exe");
+    static string Exe => Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "AetherDrop.exe");
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     static extern int SetCurrentProcessExplicitAppUserModelID(string id);
@@ -55,13 +55,16 @@ public static class Shell
         Try(() =>
         {
             using var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-            if (startWithWindows) run.SetValue("nekodrop", $"\"{exe}\" --background");
-            else run.DeleteValue("nekodrop", false);
+            run.DeleteValue("nekodrop", false);
+            if (startWithWindows) run.SetValue("AetherDrop", $"\"{exe}\" --background");
+            else run.DeleteValue("AetherDrop", false);
         });
         Try(() =>
         {
-            var sendTo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo), "nekodrop.lnk");
-            if (!File.Exists(sendTo)) CreateShortcut(sendTo, exe, "--send");
+            var folder = Environment.GetFolderPath(Environment.SpecialFolder.SendTo);
+            var legacy = Path.Combine(folder, "nekodrop.lnk");
+            if (File.Exists(legacy)) File.Delete(legacy);
+            CreateShortcut(Path.Combine(folder, "AetherDrop.lnk"), exe, "--send");
         });
         _ = RegisterMenuPackage();
     }
@@ -124,7 +127,8 @@ public static class Shell
         Registry.CurrentUser.DeleteSubKeyTree(@"Software\nekodrop", false);
         using var run = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
         run?.DeleteValue("nekodrop", false);
-        var sendTo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo), "nekodrop.lnk");
+        run?.DeleteValue("AetherDrop", false);
+        var sendTo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo), "AetherDrop.lnk");
         if (File.Exists(sendTo)) File.Delete(sendTo);
         try
         {

@@ -1122,7 +1122,7 @@ public sealed class Supervisor : IDisposable
             if (File.ReadAllText(fullInf).Contains(card.Profile.ProxyInfStem, StringComparison.OrdinalIgnoreCase))
             {
                 Say($"{Path.GetFileName(fullInf)} on record is nekodrop's own driver, not {vendor}'s; " +
-                    $"run Start menu > nekodrop - restore Windows Wi-Fi to get {vendor}'s driver back");
+                    $"run Start menu > AetherDrop - restore Windows Wi-Fi to get {vendor}'s driver back");
                 lock (_lock) { _cfg.VendorInf = ""; _cfg.Save(); }
                 return;
             }

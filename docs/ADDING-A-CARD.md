@@ -86,7 +86,7 @@ backend only what its `IRadioBackend.BuildArgs` returns.
 
 ### 5. Docs / 文档
 
-The card tables in `README.md`, `README.zh-CN.md` and `docs/COMPATIBILITY*.md`.
+The card tables in `README.md` and `docs/COMPATIBILITY*.md`.
 
 ## Candidates / 候选
 
