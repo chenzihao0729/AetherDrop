@@ -1,12 +1,12 @@
-﻿# nekodrop diagnostic report: everything a bug report needs, in one file.
-# Start menu -> "nekodrop - diagnostic report", the tray menu, or run this.
+﻿# AetherDrop diagnostic report: everything a bug report needs, in one file.
+# Start menu -> "AetherDrop - diagnostic report", the tray menu, or run this.
 # Needs administrator rights (the service's logs and the driver state are
 # readable by administrators only); it asks for them itself.
 #
 # Writes two files to the Desktop:
-#   nekodrop-report-<time>.md   summary, bring-up checklist, system, card,
+#   AetherDrop-report-<time>.md   summary, bring-up checklist, system, card,
 #                               network, key log lines (paste into an issue)
-#   nekodrop-logs-<time>.txt    the full logs (attach to the issue)
+#   AetherDrop-logs-<time>.txt    the full logs (attach to the issue)
 # SSIDs, MAC addresses, private IP addresses, the user name and the computer
 # name are replaced by placeholders. Nothing is sent anywhere.
 #
@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Continue'
 Set-StrictMode -Off
 
 # ------------------------------------------------ Wi-Fi card classification
-# What a wireless card is and why nekodrop does or does not run on it, from its
+# What a wireless card is and why AetherDrop does or does not run on it, from its
 # PCI (or USB) ID alone. Without this a report from a PC with a Realtek,
 # MediaTek or newer Intel card said only "no supported Intel card found", which
 # did not tell an unlisted device ID from a broken driver (#16). Pure data, so
@@ -42,16 +42,19 @@ $WifiChips = @{
   '8086:2726' = @('intel-fw', 'Intel SnJ')
   '8086:2729' = @('intel-fw', 'Intel Ma (Meteor Lake CNVi)')
   '8086:7E40' = @('intel-fw', 'Intel Ma (Meteor Lake CNVi)')
-  # Intel Wi-Fi 7 (Linux iwlwifi's Bz/Gl/Sc device IDs): no upstream driver.
-  '8086:272B' = @('intel-be', 'Intel BE200 (Wi-Fi 7)')
+  # Intel Wi-Fi 7 (Linux iwlwifi's Bz/Gl/Sc device IDs): BE200 is experimental
+  # (Concurrent and on-demand); CNVi Wi-Fi 7 cards have no driver yet.
+  '8086:272B' = @('intel-be-exp', 'Intel BE200 (Wi-Fi 7)')
   '8086:A840' = @('intel-be', 'Intel BE201/BE211 (Wi-Fi 7, CNVi)')
   '8086:7740' = @('intel-be', 'Intel BE201/BE211 (Wi-Fi 7, CNVi)')
   '8086:E440' = @('intel-be', 'Intel Wi-Fi 7 (CNVi)')
   '8086:E340' = @('intel-be', 'Intel Wi-Fi 7 (CNVi)')
   '8086:D340' = @('intel-be', 'Intel Wi-Fi 7 (CNVi)')
   # Realtek (Linux rtw88/rtw89 device IDs). RTL8852CE is natively supported
-  # via nekodrop's built-in devourer backend (on-demand AirDrop).
+  # via AetherDrop's built-in devourer backend (on-demand AirDrop).
   '10EC:C852' = @('supported-rtl', 'Realtek RTL8852CE')
+  # MediaTek MT7902: built-in mt76 port (AetherDrop-radio-mt.exe, 5 GHz Wi-Fi beside AirDrop or on-demand).
+  '14C3:7902' = @('supported-mtk', 'MediaTek MT7902')
   '10EC:8852' = @('rtl', 'Realtek RTL8852AE')
   '10EC:A85A' = @('rtl', 'Realtek RTL8852AE')
   '10EC:B852' = @('rtl', 'Realtek RTL8852BE')
@@ -64,14 +67,13 @@ $WifiChips = @{
   '10EC:D723' = @('rtl', 'Realtek RTL8723DE')
   '10EC:B723' = @('rtl', 'Realtek RTL8723BE')
   # MediaTek, also sold as AMD RZ6xx/RZ7xx (Linux mt76).
-  '14C3:7961' = @('mtk', 'MediaTek MT7921')
-  '14C3:0608' = @('mtk', 'MediaTek MT7921 (AMD RZ608)')
-  '14C3:7922' = @('mtk', 'MediaTek MT7922')
-  '14C3:0616' = @('mtk', 'MediaTek MT7922 (AMD RZ616)')
+  '14C3:7961' = @('supported-mtk', 'MediaTek MT7921')
+  '14C3:0608' = @('supported-mtk', 'MediaTek MT7921 (AMD RZ608)')
+  '14C3:7922' = @('supported-mtk', 'MediaTek MT7922')
+  '14C3:0616' = @('supported-mtk', 'MediaTek MT7922 (AMD RZ616)')
   '14C3:7925' = @('mtk', 'MediaTek MT7925')
   '14C3:0717' = @('mtk', 'MediaTek MT7925 (AMD RZ717)')
   '14C3:7927' = @('mtk', 'MediaTek MT7927 (Wi-Fi 7)')
-  '14C3:7902' = @('mtk', 'MediaTek MT7902')
   '14C3:7663' = @('mtk', 'MediaTek MT7663')
   '14C3:7615' = @('mtk', 'MediaTek MT7615')
   # Qualcomm (Linux ath11k/ath12k) and Qualcomm Atheros (ath10k/ath9k).
@@ -96,12 +98,14 @@ $WifiChips = @{
 # kind -> what the report says, and a hint for the reader (may be empty).
 $WifiKinds = @{
   'supported'     = @('supported by AetherDrop', '')
+  'supported-mtk' = @('supported by AetherDrop (5 GHz Wi-Fi beside AirDrop, or on-demand; built-in MediaTek backend)', 'Joins 5 GHz Wi-Fi beside AirDrop, or runs on demand while Windows keeps Wi-Fi.')
   'supported-rtl' = @('supported by AetherDrop (on-demand AirDrop, built-in RTL8852CE backend)', 'Windows keeps Wi-Fi normally; AetherDrop takes the card only during AirDrop transfers.')
   'intel-fw'      = @('not supported: its firmware is not shipped upstream', 'AetherDrop runs the Intel cards whose firmware ForbiddenItlwm ships (API 68); this one has none there.')
+  'intel-be-exp'  = @('supported by AetherDrop (experimental, Concurrent Wi-Fi beside AirDrop or on-demand, not yet run on a real card)', 'Joins Wi-Fi beside AirDrop or runs on demand while Windows keeps Wi-Fi. Please post a diagnostic report in an issue whether it works or not.')
   'intel-be'      = @('not supported: Intel Wi-Fi 7, no upstream driver', 'ForbiddenItlwm, which AetherDrop ports, has no driver for Wi-Fi 7 cards yet.')
   'intel-other'   = @('not supported: an Intel device ID AetherDrop does not know', 'Please post this report in an issue: if upstream ships firmware for this card, its ID can be added.')
   'rtl'           = @('not supported: Realtek', 'Among Realtek chips, AetherDrop currently has built-in support for RTL8852CE (10EC:C852) only.')
-  'mtk'           = @('not supported: MediaTek', 'No user-mode Windows driver exists for MediaTek Wi-Fi yet.')
+  'mtk'           = @('not supported: MediaTek', 'Among MediaTek chips, AetherDrop currently has built-in support for MT7902, MT7921 (RZ608), and MT7922 (RZ616) only.')
   'qcom'          = @('not supported: Qualcomm', 'No user-mode Windows driver exists for Qualcomm Wi-Fi yet.')
   'bcm'           = @('not supported: Broadcom', 'There is no open Windows driver path for Broadcom Wi-Fi.')
   'usb'           = @('not supported: USB adapter', 'AetherDrop drives PCIe cards only.')
@@ -131,7 +135,7 @@ function Classify-WifiCard([string]$InstanceId, [string]$FriendlyName = '') {
     }
   }
   $vendorName = if ($WifiVendors.ContainsKey($vendor)) { $WifiVendors[$vendor] } elseif ($vendor) { "vendor $vendor" } else { 'unknown vendor' }
-  if (-not $chip) { $chip = "$vendorName $device (not in nekodrop's table)" }
+  if (-not $chip) { $chip = "$vendorName $device (not in AetherDrop's table)" }
   return [pscustomobject]@{
     Bus = $bus; Vendor = $vendorName; VendorId = $vendor; DeviceId = $device
     HardwareId = $(if ($parts.Count -gt 1) { $parts[1] } else { $id })
@@ -224,21 +228,25 @@ if ($SelfTest) {
     @('PCI\VEN_8086&DEV_2725&SUBSYS_00248086&REV_1A\4&2A1B3C4D&0&00E0', 'supported', 'Intel Wi-Fi 6/6E'),
     @('PCI\VEN_8086&DEV_7E40&SUBSYS_00908086&REV_20\3&11583659&0&A3', 'intel-fw', 'Intel Ma (Meteor Lake CNVi)'),
     @('PCI\VEN_8086&DEV_2726&SUBSYS_00248086', 'intel-fw', 'Intel SnJ'),
-    @('PCI\VEN_8086&DEV_272B&SUBSYS_00F48086&REV_1A\4&1', 'intel-be', 'Intel BE200 (Wi-Fi 7)'),
-    @('PCI\VEN_8086&DEV_1234&SUBSYS_00008086\4&1', 'intel-other', 'Intel 1234 (not in nekodrop''s table)'),
+    @('PCI\VEN_8086&DEV_272B&SUBSYS_00F48086&REV_1A\4&1', 'intel-be-exp', 'Intel BE200 (Wi-Fi 7)'),
+    @('PCI\VEN_8086&DEV_A840&SUBSYS_00E48086&REV_10\3&1', 'intel-be', 'Intel BE201/BE211 (Wi-Fi 7, CNVi)'),
+    @('PCI\VEN_8086&DEV_1234&SUBSYS_00008086\4&1', 'intel-other', 'Intel 1234 (not in AetherDrop''s table)'),
     @('PCI\VEN_10EC&DEV_C852&SUBSYS_C85210EC&REV_00\4&1&0&00E8', 'supported-rtl', 'Realtek RTL8852CE'),
     @('pci\ven_10ec&dev_c852&subsys_c85210ec', 'supported-rtl', 'Realtek RTL8852CE'),
     @('PCI\VEN_10EC&DEV_B852&SUBSYS_B85217AA\4&1', 'rtl', 'Realtek RTL8852BE'),
-    @('PCI\VEN_10EC&DEV_ABCD&SUBSYS_000010EC', 'rtl', 'Realtek ABCD (not in nekodrop''s table)'),
-    @('PCI\VEN_14C3&DEV_7922&SUBSYS_7922103C\4&1', 'mtk', 'MediaTek MT7922'),
-    @('PCI\VEN_14C3&DEV_0616&SUBSYS_E0CD1A3B\4&1', 'mtk', 'MediaTek MT7922 (AMD RZ616)'),
+    @('PCI\VEN_10EC&DEV_ABCD&SUBSYS_000010EC', 'rtl', 'Realtek ABCD (not in AetherDrop''s table)'),
+    @('PCI\VEN_14C3&DEV_7922&SUBSYS_7922103C\4&1', 'supported-mtk', 'MediaTek MT7922'),
+    @('PCI\VEN_14C3&DEV_0616&SUBSYS_E0CD1A3B\4&1', 'supported-mtk', 'MediaTek MT7922 (AMD RZ616)'),
+    @('PCI\VEN_14C3&DEV_7961&SUBSYS_796114C3\4&1', 'supported-mtk', 'MediaTek MT7921'),
+    @('PCI\VEN_14C3&DEV_0608&SUBSYS_060814C3\4&1', 'supported-mtk', 'MediaTek MT7921 (AMD RZ608)'),
+    @('PCI\VEN_14C3&DEV_7925&SUBSYS_792514C3\4&1', 'mtk', 'MediaTek MT7925'),
     @('PCI\VEN_14C3&DEV_7927&SUBSYS_792714C3\4&1', 'mtk', 'MediaTek MT7927 (Wi-Fi 7)'),
-    @('PCI\VEN_14C3&DEV_7902&SUBSYS_790214C3\4&1', 'mtk', 'MediaTek MT7902'),
+    @('PCI\VEN_14C3&DEV_7902&SUBSYS_790214C3\4&1', 'supported-mtk', 'MediaTek MT7902'),
     @('PCI\VEN_17CB&DEV_1103&SUBSYS_010817CB\4&1', 'qcom', 'Qualcomm WCN6855 (FastConnect 6800/6900)'),
     @('PCI\VEN_168C&DEV_003E&SUBSYS_3212144F\4&1', 'qcom', 'Qualcomm Atheros QCA6174'),
     @('PCI\VEN_14E4&DEV_43A0&SUBSYS_0000106B\4&1', 'bcm', 'Broadcom BCM4360'),
-    @('USB\VID_0BDA&PID_8812\00E04C000001', 'usb', 'Realtek 8812 (not in nekodrop''s table)'),
-    @('PCI\VEN_1AE0&DEV_1234&SUBSYS_00001AE0\4&1', 'other', 'vendor 1AE0 1234 (not in nekodrop''s table)')
+    @('USB\VID_0BDA&PID_8812\00E04C000001', 'usb', 'Realtek 8812 (not in AetherDrop''s table)'),
+    @('PCI\VEN_1AE0&DEV_1234&SUBSYS_00001AE0\4&1', 'other', 'vendor 1AE0 1234 (not in AetherDrop''s table)')
   )
   foreach ($c in $cases) {
     $r = Classify-WifiCard $c[0]
@@ -324,7 +332,7 @@ if (-not $isAdmin) {
              "-UserData `"$env:LOCALAPPDATA`" -UserName `"$env:USERNAME`""
   if ($NoOpen) { $argLine += ' -NoOpen' }
   try { Start-Process powershell.exe -ArgumentList $argLine -Verb RunAs | Out-Null }
-  catch { Write-Host 'nekodrop: the diagnostic report needs administrator rights.' }
+  catch { Write-Host 'AetherDrop: the diagnostic report needs administrator rights.' }
   exit
 }
 if (-not $OutDir) { $OutDir = [Environment]::GetFolderPath('Desktop') }
@@ -332,17 +340,17 @@ if (-not $UserData) { $UserData = $env:LOCALAPPDATA }
 if (-not $UserName) { $UserName = $env:USERNAME }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
-$state = Join-Path $env:ProgramData 'nekodrop'
+$state = Join-Path $env:ProgramData 'AetherDrop'
 $app = $PSScriptRoot
-# Downloaded on its own (for an older nekodrop): the installed copy's folder.
-if (-not (Test-Path (Join-Path $app 'NekoDropService.exe'))) {
+# Downloaded on its own (for an older AetherDrop): the installed copy's folder.
+if (-not (Test-Path (Join-Path $app 'AetherDropService.exe')) -and -not (Test-Path (Join-Path $app 'NekoDropService.exe'))) {
   $app = Join-Path $env:ProgramFiles 'AetherDrop'
-  if (-not (Test-Path (Join-Path $app 'NekoDropService.exe'))) { $app = Join-Path $env:ProgramFiles 'nekodrop' }
+  if (-not (Test-Path (Join-Path $app 'AetherDropService.exe')) -and -not (Test-Path (Join-Path $app 'NekoDropService.exe'))) { $app = Join-Path $env:ProgramFiles 'nekodrop' }
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $reportPath = Join-Path $OutDir "AetherDrop-report-$stamp.md"
 $logsPath = Join-Path $OutDir "AetherDrop-logs-$stamp.txt"
-Write-Host 'nekodrop: collecting the diagnostic report...'
+Write-Host 'AetherDrop: collecting the diagnostic report...'
 
 # ---------------------------------------------------------------- helpers
 function Read-Tail([string]$path, [int]$n) {
@@ -370,7 +378,7 @@ function Run-Netsh([string[]]$netshArgs) {
 
 # Service log, the rotated copy first (oldest lines first).
 $serviceLog = @(Read-All (Join-Path $state 'service.log.1')) + @(Read-All (Join-Path $state 'service.log'))
-$engineDir = Join-Path $UserData 'nekodrop'
+$engineDir = Join-Path $UserData 'AetherDrop'
 $engineLog = @(Read-All (Join-Path $engineDir 'engine.log.old')) + @(Read-All (Join-Path $engineDir 'engine.log'))
 $installLog = Read-All (Join-Path $state 'install.log')
 $restoreLog = Read-All (Join-Path $state 'restore.log')
@@ -387,7 +395,7 @@ foreach ($line in $wlanInterfaces) {
   if ($line -match '^\s*SSID\s*:\s(.+)$') { $ssids.Add($Matches[1].Trim()) }
 }
 foreach ($line in $serviceLog) {
-  foreach ($m in [regex]::Matches($line, '(?:joining|connecting to|chosen in nekodrop|Forget|forget)\s+"([^"]+)"')) { $ssids.Add($m.Groups[1].Value) }
+  foreach ($m in [regex]::Matches($line, '(?:joining|connecting to|chosen in AetherDrop|Forget|forget)\s+"([^"]+)"')) { $ssids.Add($m.Groups[1].Value) }
   foreach ($m in [regex]::Matches($line, '^\S+ \S+ Wi-Fi: "([^"]+)"')) { $ssids.Add($m.Groups[1].Value) }
 }
 $ssidList = @($ssids | Where-Object { $_ -and $_.Length -ge 3 } | Sort-Object -Unique | Sort-Object Length -Descending)
@@ -420,12 +428,15 @@ $cv = Try-Get { Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVer
 $cs = Try-Get { Get-CimInstance Win32_ComputerSystem }
 $cpu = Try-Get { (Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim() }
 $dg = Try-Get { Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard }
-$svc = Get-Service NekoDropService -ErrorAction SilentlyContinue
-$svcStart = Try-Get { (Get-CimInstance Win32_Service -Filter "Name='NekoDropService'").StartMode }
-$exe = Join-Path $app 'NekoDropService.exe'
+ $serviceName = 'AetherDropService'
+$svc = Get-Service $serviceName -ErrorAction SilentlyContinue
+if (-not $svc) { $serviceName = 'NekoDropService'; $svc = Get-Service $serviceName -ErrorAction SilentlyContinue }
+$svcStart = Try-Get { (Get-CimInstance Win32_Service -Filter "Name='$serviceName'").StartMode }
+$exe = Join-Path $app 'AetherDropService.exe'
+if (-not (Test-Path $exe)) { $exe = Join-Path $app 'NekoDropService.exe' }
 $version = Try-Get { (Get-Item $exe).VersionInfo.ProductVersion }
 $config = Try-Get { Get-Content (Join-Path $state 'service.json') -Raw | ConvertFrom-Json }
-$SupportedCardPattern = '^PCI\\(?:VEN_8086&DEV_(' + ($SupportedIntelIds -join '|') + ')|VEN_10EC&DEV_C852)(?=&|\\|$)'
+$SupportedCardPattern = '^PCI\\(?:VEN_8086&DEV_(' + ($SupportedIntelIds -join '|') + ')|VEN_10EC&DEV_C852|VEN_14C3&DEV_(7902|7961|0608|7922|0616))(?=&|\\|$)'
 # Every present device once: the supported card and the other wireless cards
 # below both come from it.
 $pnpAll = @(Try-Get { Get-PnpDevice -PresentOnly } | Where-Object { $_ })
@@ -479,13 +490,13 @@ function Dev-Name($dev) {
   return 'unnamed device'
 }
 # One line per device: name, ID without the instance part (a USB adapter's
-# serial, often its MAC address), and what nekodrop makes of it.
+# serial, often its MAC address), and what AetherDrop makes of it.
 function Wireless-Summary($dev) {
   $c = Classify-WifiCard $dev.InstanceId
   $hw = if ($c.Bus -and $c.HardwareId -and $c.HardwareId -ne $c.Bus) { "$($c.Bus)\$($c.HardwareId)" } else { $c.HardwareId }
   return "$(Dev-Name $dev) (``$(Redact $hw)``): $($c.Chip), $($c.Status)"
 }
-$procs = @('nekodrop-radio', 'nekodrop-radio-rtl', 'awdld', 'AetherDrop', 'nekodrop', 'NekoDropService') | ForEach-Object {
+$procs = @('AetherDrop-radio', 'AetherDrop-radio-rtl', 'AetherDrop-radio-mt', 'AetherDrop-radio-mtk', 'awdld', 'AetherDrop', 'AetherDropService') | ForEach-Object {
   $p = Get-Process $_ -ErrorAction SilentlyContinue
   if ($p) { "$_ (running)" } else { "$_ (not running)" }
 }
@@ -497,13 +508,13 @@ $engineRunning = Try-Get { @(Get-CimInstance Win32_Process -Filter "Name='python
 $attempt = @()
 $lastRadio = -1; $lastTake = -1
 for ($i = 0; $i -lt $serviceLog.Count; $i++) {
-  if ($serviceLog[$i] -match 'radio: card 0x') { $lastRadio = $i }
+  if ($serviceLog[$i] -match 'radio: card 0x|mtkradio: regproxy opened:') { $lastRadio = $i }
   elseif ($serviceLog[$i] -match 'taking the card from') { $lastTake = $i }
 }
 $start = $lastRadio
 if ($lastTake -gt $lastRadio) { $start = $lastTake }
 elseif ($lastTake -ge 0 -and $lastRadio -ge 0) {
-  $between = $serviceLog[$lastTake..$lastRadio] | Where-Object { $_ -match 'radio: card 0x' }
+  $between = $serviceLog[$lastTake..$lastRadio] | Where-Object { $_ -match 'radio: card 0x|mtkradio: regproxy opened:' }
   if (@($between).Count -eq 1) { $start = $lastTake }
 }
 if ($start -ge 0) { $attempt = $serviceLog[$start..($serviceLog.Count - 1)] }
@@ -526,7 +537,7 @@ W "Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm'). SSIDs, MAC and IP addresses
 W ''
 W '## Summary'
 W ''
-W "- nekodrop: $(if ($version) { $version } else { 'not found at ' + (Redact $app) })"
+W "- AetherDrop: $(if ($version) { $version } else { 'not found at ' + (Redact $app) })"
 W "- Windows: $(if ($os) { $os.Caption }) $(if ($cv) { $cv.DisplayVersion }) (build $(if ($cv) { "$($cv.CurrentBuild).$($cv.UBR)" }))"
 W "- Service: $(if ($svc) { "$($svc.Status), start $svcStart" } else { 'not installed' }); mode $(if ($config) { $config.Mode } else { '?' })"
 # Without a supported card, say which card is there and why it is not (#16).
@@ -549,15 +560,15 @@ if ($start -lt 0) {
   W ''
   W '| Step | Result | Line |'
   W '|---|---|---|'
-  W (Stage 'Take the card (driver bind)' 'radio: card 0x' 'taking the card failed|binding .* failed|register proxy did not start|register proxy not openable')
-  W (Stage 'Identify the card' 'radio: .*\((AX210|22000) family' 'unsupported card|not an Intel device|card does not answer')
-  W (Stage 'DMA memory' 'DMA: \d+ pages in use' 'out of DMA memory for (the rings|receive|the transmit|command|the firmware|the peripheral)|could not lock|DMA: .*fail')
-  W (Stage 'Load the firmware' 'radio: firmware \S+: \d+ LMAC' 'firmware has more sections|no image loader|cannot read|firmware file')
-  W (Stage 'Firmware alive' 'radio: firmware alive' 'did not come alive|failed ALIVE|no ALIVE notification|card not ready|APM init failed|hardware start failed')
+  W (Stage 'Take the card (driver bind)' 'radio: card 0x|mtkradio: regproxy opened:' 'taking the card failed|binding .* failed|register proxy did not start|register proxy not openable')
+  W (Stage 'Identify the card' 'radio: .*\((AX210|22000) family|mtkradio: MTK chip_id=' 'unsupported card|not an Intel device|card does not answer')
+  W (Stage 'DMA memory' 'DMA: \d+ pages in use|mtkradio: 32-bit DMA pool locked' 'out of DMA memory for (the rings|receive|the transmit|command|the firmware|the peripheral)|could not lock|DMA: .*fail|SeLockMemoryPrivilege')
+  W (Stage 'Load the firmware' 'radio: firmware \S+: \d+ LMAC|mtkradio: loading RAM firmware' 'firmware has more sections|no image loader|cannot read|firmware file')
+  W (Stage 'Firmware alive' 'radio: firmware alive|mtkradio: MT792\d firmware booted and ready' 'did not come alive|failed ALIVE|no ALIVE notification|card not ready|APM init failed|hardware start failed')
   W (Stage 'PNVM (AX210 family)' 'PNVM: \d+ bytes for this SKU' 'PNVM: none|PNVM: no buffer|PNVM: out of DMA|no PNVM_INIT_COMPLETE|did not take its platform NVM' 'AX210 family')
-  W (Stage 'Firmware init (INIT_COMPLETE)' 'radio: NVM: tx antennas' 'no INIT_COMPLETE|INIT_EXTENDED_CFG failed|NVM_ACCESS_COMPLETE failed|reading the NVM failed')
-  W (Stage 'Firmware setup commands' 'radio: ready on channel' 'firmware init commands failed|PHY context add failed|MAC context|binding failed')
-  W (Stage 'Radio ready' 'radio: ready on channel' 'radio exited during bring-up|never became ready')
+  W (Stage 'Firmware init (INIT_COMPLETE)' 'radio: NVM: tx antennas|mtkradio: WFDMA rings allocated' 'no INIT_COMPLETE|INIT_EXTENDED_CFG failed|NVM_ACCESS_COMPLETE failed|reading the NVM failed')
+  W (Stage 'Firmware setup commands' 'radio: ready on channel|mtkradio: tuned to ch' 'firmware init commands failed|PHY context add failed|MAC context|binding failed')
+  W (Stage 'Radio ready' 'radio: ready on channel|mtkradio: listening on ' 'radio exited during bring-up|never became ready')
   $awdl = $attempt | Where-Object { $_ -match 'rx: \d+ frames, (\d+) AWDL action frames' } | ForEach-Object { [int]$Matches[1] } | Measure-Object -Maximum
   # MIF counts (0.1.9+): awdld takes a peer as valid only after one (#16).
   $mif = $attempt | Where-Object { $_ -match 'AWDL action frames \((\d+) PSF, (\d+) MIF' } | ForEach-Object { [int]$Matches[2] } | Measure-Object -Maximum
@@ -680,9 +691,9 @@ if ($card) {
   # card) can confuse which one Windows uses for its own Wi-Fi.
   $otherWireless | ForEach-Object { W "- Additional wireless device: $(Wireless-Summary $_)" }
 } else {
-  W 'No Wi-Fi card nekodrop supports is present.'
+  W 'No Wi-Fi card AetherDrop supports is present.'
   # Each wireless card that is there, with what it is and its driver, so a
-  # report tells an unlisted ID from a card nekodrop cannot drive (#16).
+  # report tells an unlisted ID from a card AetherDrop cannot drive (#16).
   foreach ($o in $otherWireless) {
     $c = Classify-WifiCard $o.InstanceId
     W ''
@@ -700,14 +711,15 @@ if ($card) {
   }
   if ($otherWireless.Count) {
     W ''
-    W 'Which cards nekodrop can support, and why: https://github.com/zheznanohana/nekodrop/blob/main/docs/HARDWARE.md'
+    W 'Which cards AetherDrop can support, and why: https://github.com/zheznanohana/nekodrop/blob/main/docs/HARDWARE.md'
   }
 }
 if ($config) {
   W "- Settings: mode $($config.Mode), country '$($config.Country)', start channel $($config.StartChannel), peer channel $($config.PeerChannel), on-demand idle $($config.IdleSeconds) s"
+  W '- AWDL channel policy: upstream 2.1.3 automatic following; wait for 10 seconds without radio/AWDL data; active client transfer sessions defer moves'
   # The experimental switches change how the radio sends and scans: say which are on.
   # A-MPDU has no switch since 0.1.35 (an old config's "Aggregate" field is stale, so ignore it).
-  W "- Faster sending: always on (0.1.25+). A-MPDU sending: always on (0.1.35+). Experimental: fast passive-channel unlock $(if ($config.FastUnlock) { 'on' } else { 'off' })"
+  W "- Faster sending: always on (0.1.25+). A-MPDU sending: always on (0.1.35+). Balanced Bluetooth coexistence: always on, Intel (0.1.37+). Experimental: fast passive-channel unlock $(if ($config.FastUnlock) { 'on' } else { 'off' })"
 }
 W ''
 
@@ -722,12 +734,12 @@ foreach ($a in $presentAdapters) {
   W "| $(Redact $a.Name) | $(Redact $a.InterfaceDescription) | $($a.Status) | $($a.LinkSpeed) | $metric |"
 }
 W ''
-if (-not ($presentAdapters | Where-Object { $_.Name -eq 'nekodrop' })) {
-  $hiddenTap = @(Try-Get { Get-NetAdapter -Name 'nekodrop' -IncludeHidden -ErrorAction Stop })
+if (-not ($presentAdapters | Where-Object { $_.Name -eq 'AetherDrop' })) {
+  $hiddenTap = @(Try-Get { Get-NetAdapter -Name 'AetherDrop' -IncludeHidden -ErrorAction Stop })
   if ($hiddenTap.Count) {
-    W "nekodrop TAP adapter: $($hiddenTap[0].Status) ($($hiddenTap[0].InterfaceDescription))"
+    W "AetherDrop TAP adapter: $($hiddenTap[0].Status) ($($hiddenTap[0].InterfaceDescription))"
   } else {
-    W 'nekodrop TAP adapter: missing'
+    W 'AetherDrop TAP adapter: missing'
   }
   W ''
 }
@@ -828,8 +840,8 @@ foreach ($part in @(
 }
 [IO.File]::WriteAllText($logsPath, $full.ToString(), (New-Object System.Text.UTF8Encoding($false)))
 
-Write-Host "nekodrop: report written to $reportPath"
-Write-Host "nekodrop: full logs written to $logsPath"
+Write-Host "AetherDrop: report written to $reportPath"
+Write-Host "AetherDrop: full logs written to $logsPath"
 if (-not $NoOpen) {
   try { Set-Clipboard -Value $report } catch { }
   Start-Process notepad.exe -ArgumentList "`"$reportPath`""

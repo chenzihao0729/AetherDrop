@@ -1,8 +1,188 @@
 # Changelog / 更新日志
 
 > Release channels / 发布通道：
-> - **Stable（稳定版 / Latest）**：长期保留、经过稳定基线锁定的版本。当前稳定版为 **`v0.1.35`**（首个稳定基线为 `v0.1.22`）。
+> - **Stable（稳定版 / Latest）**：长期保留、经过稳定基线锁定的版本。当前稳定版为 **`v2.1.1`**（首个稳定基线为 `v0.1.22`）。
 > - **Hourly（每时预览版 / Pre-release）**：持续迭代的预览版（客户端默认也会收到；取消勾选「包括预览版」就只收稳定版）；GitHub Releases 仅滚动保留最新 4 个每时版 + 稳定版（最多 5 个 Release），历史 Git Tag 全部保留。
+
+---
+
+## v2.1.3 (Preview / 预览版) — 2026-11-24
+
+### 中文
+- 修复 Apple ID「退出 / 删除身份」后本机状态未清理干净的 bug：一并清理 `WirDrop\device.txt`、`HKCU\Software\WirDrop` 注册表项及 32 位 `appleid-anisette.exe` 在 `VirtualStore` 中留下的 CoreADI 注册缓存（保留已解压的 `WirDrop\icloud` 避免重复下载），同时在卸载注销（`--unregister`）时同步清理；避免残留或时钟失步的旧设备凭据导致重登持续报 `-22421`
+
+### English
+- Fix Apple ID "Sign out / remove" leaving stale per-PC Anisette state behind: now also cleans up `WirDrop\device.txt`, `HKCU\Software\WirDrop`, and the 32-bit `appleid-anisette.exe` CoreADI cache under `VirtualStore` (while keeping the unpacked `WirDrop\icloud` runtime to avoid re-downloading), and runs the same cleanup on `--unregister` during uninstall; prevents stale or clock-skewed provisioning state from causing repeated `-22421` sign-in failures
+
+---
+
+## v2.1.2 (Preview / 预览版) — 2026-11-24
+
+### 中文
+- 新增 MediaTek MT7922 / MT7921（AMD RZ616 / RZ608）支持，按需和同时连 Wi-Fi（仅 5 GHz）（[#40](https://github.com/zheznanohana/nekodrop/pull/40)，感谢 @YiHoooong）
+- 新增 MediaTek MT7902 同时连 Wi-Fi 模式（[#47](https://github.com/zheznanohana/nekodrop/pull/47)，感谢 @DaiJiequn）
+- 新增 Intel BE200（Wi-Fi 7）实验性支持，同时连 Wi-Fi 和按需
+- 修复部分 Apple ID 登录报 -27952 的 bug：自动换新版客户端标识重试一次（[#42](https://github.com/zheznanohana/nekodrop/issues/42)、[#45](https://github.com/zheznanohana/nekodrop/issues/45)）
+- AX210 / AX201：日志记录 Block Ack 通知的去向，排查发送退回单帧的问题（[#39](https://github.com/zheznanohana/nekodrop/issues/39)、[#43](https://github.com/zheznanohana/nekodrop/issues/43)）
+- 以上只在 CI 上编译测试；BE200、MT7921 和两张联发科卡的同时连 Wi-Fi 还没有真机验证
+
+### English
+- New: MediaTek MT7922 / MT7921 (AMD RZ616 / RZ608), on demand and Concurrent (5 GHz only) ([#40](https://github.com/zheznanohana/nekodrop/pull/40), thanks @YiHoooong)
+- New: Concurrent mode for MediaTek MT7902 ([#47](https://github.com/zheznanohana/nekodrop/pull/47), thanks @DaiJiequn)
+- New: experimental Intel BE200 (Wi-Fi 7), Concurrent and on demand
+- Fix Apple ID sign-in failing with -27952 for some accounts: retries once with a newer client identity ([#42](https://github.com/zheznanohana/nekodrop/issues/42), [#45](https://github.com/zheznanohana/nekodrop/issues/45))
+- AX210 / AX201: the log says where Block Ack notifications go, to find why sending falls back to single frames ([#39](https://github.com/zheznanohana/nekodrop/issues/39), [#43](https://github.com/zheznanohana/nekodrop/issues/43))
+- Built and tested on CI only; BE200, MT7921 and Concurrent on both MediaTek cards are not yet verified on hardware
+
+---
+
+## v2.1.1 (Stable / 稳定版) — 2026-11-24
+
+### 中文
+- 修复删掉用户目录的 Downloads 文件夹后 AirDrop 引擎反复崩溃的 bug（[#45](https://github.com/zheznanohana/nekodrop/issues/45)）
+- 修复 Explorer 占用右键菜单组件时升级安装失败的 bug；修复安装失败提示是乱码的 bug
+- 修复右键「用 nekodrop 发送」和通知里「接受」按钮可能没反应的 bug（[#45](https://github.com/zheznanohana/nekodrop/issues/45)）
+- 修复从资源管理器往面板拖文件时面板自己收起的 bug（[#45](https://github.com/zheznanohana/nekodrop/issues/45)）
+- 新增「总是接受的设备」的「添加」按钮（[#45](https://github.com/zheznanohana/nekodrop/issues/45)）
+- 修复网速较慢时 iCloud 组件下载失败的 bug，下载时显示进度条，一个下载源不通时自动换下一个（[#42](https://github.com/zheznanohana/nekodrop/issues/42)）
+- 安装最后一步显示滚动进度条，不再像卡住（[#45](https://github.com/zheznanohana/nekodrop/issues/45)）
+- 新增升级后自动删除下载的安装包（[#44](https://github.com/zheznanohana/nekodrop/pull/44)，感谢 @GGBond-cer）
+- RTL8852CE：日志记录 iPhone 的信道序列，排查停在 6 信道的问题（[#32](https://github.com/zheznanohana/nekodrop/issues/32)）
+- 以上修复只在 CI 上编译测试，还没有真机验证
+
+### English
+- Fix the AirDrop engine crashing over and over when the profile has no Downloads folder ([#45](https://github.com/zheznanohana/nekodrop/issues/45))
+- Fix updates failing when Explorer holds the right-click menu component; fix the garbled text of the install error
+- Fix Explorer's "Send with nekodrop" and the notification's Accept button sometimes doing nothing ([#45](https://github.com/zheznanohana/nekodrop/issues/45))
+- Fix the panel closing while files are dragged to it from Explorer ([#45](https://github.com/zheznanohana/nekodrop/issues/45))
+- New: an Add button for "Always accept from" ([#45](https://github.com/zheznanohana/nekodrop/issues/45))
+- Fix the iCloud component download failing on slower connections, with a progress bar and more download sources ([#42](https://github.com/zheznanohana/nekodrop/issues/42))
+- The installer's last step shows a moving bar instead of looking stuck ([#45](https://github.com/zheznanohana/nekodrop/issues/45))
+- New: delete the downloaded installer after an update ([#44](https://github.com/zheznanohana/nekodrop/pull/44), thanks @GGBond-cer)
+- RTL8852CE: the log records the iPhone's channel sequence, to find why it stays on channel 6 ([#32](https://github.com/zheznanohana/nekodrop/issues/32))
+- Built and tested on CI only; not yet verified on real hardware
+
+---
+
+## v2.1.0 (Stable / 稳定版) — 2026-11-24
+
+### 中文
+- **新增「仅限联系人」（实验性，默认关闭）**：设置里新的「Apple ID」标签页，顶部有总开关；打开后可选「所有人」或「仅限联系人」。身份两种获得方式：在电脑上用 Apple ID 登录（基于 WirDrop 的 appleid，自动续期、读取 iCloud 通讯录），或导入从 Mac 导出的证书（airdrop-keychain-extractor）加 .vcf 通讯录。有身份时，TLS 用 Apple 签发的证书，/Discover 和 /Ask 带上确认记录，蓝牙信标带上你的哈希前缀，开「仅限联系人」的 iPhone 也能看到这台电脑、收到你发的文件。维护者已真机确认可用
+- 点主界面左上角的 AirDrop 标志切换接收模式：接收关闭 / 仅限联系人 / 所有人（和 iPhone 一样）；关闭时标志变灰
+- README 更新：新功能说明和截图（含 Apple ID 设置页、发送动画逐帧）
+- 安装包附带 appleid.exe / appleid-anisette.exe（从 WirDrop 源码编译，MIT）
+
+### English
+- **New: Contacts Only (experimental, off by default)**: a new Apple ID tab in Settings with a switch at the top; on, it lets you choose Everyone or Contacts Only. The identity comes from signing in to an Apple ID on this PC (WirDrop's appleid: renewed on its own, reads the iCloud contacts) or from a certificate exported from a Mac (airdrop-keychain-extractor) plus a .vcf of contacts. With one, TLS uses the Apple-issued certificate, /Discover and /Ask carry the validation record, and the Bluetooth beacon carries your hash prefixes, so iPhones set to Contacts Only see this PC and take what you send. Confirmed working by the maintainer
+- Click the AirDrop mark at the top left of the main window to switch receiving: Off / Contacts Only / Everyone, as on an iPhone; the mark turns grey when off
+- README: the new features and screenshots (the Apple ID page, sending frame by frame)
+- The installer ships appleid.exe / appleid-anisette.exe (built from WirDrop's source, MIT)
+
+---
+
+## v2.0.2 (Stable / 稳定版) — 2026-11-24
+
+> 取代 2.0.0（已撤回）和 2.0.1（安装程序的中文提示是乱码，已撤回）。自 v0.1.35 稳定版以来的界面改动见下方 v0.1.36–v2.0.0。 / Replaces 2.0.0 (withdrawn) and 2.0.1 (garbled Chinese text in the installer, withdrawn). Interface changes since the v0.1.35 stable release are in v0.1.36–v2.0.0 below.
+
+### 中文
+- 主窗口改为托盘旁的弹出面板：贴屏幕右下角，点外面自动收起，单击托盘图标开 / 关，双击不会一闪就没
+- 修复右上角出现两套最小化 / 最大化 / 关闭按钮
+- 修复窗口比屏幕高时底部显示不全；设备名和状态不再被裁切
+- 雷达放大，设备不再压住「本机」；删除雷达上的箭头
+- 接收时「本机」外圈显示进度，保存完成后变绿打勾；接受 / 拒绝气泡保留，接受后收起
+- 新增动效（Windows Fluent 原生缓动曲线）：面板滑入滑出、设备出现时淡入放大、设备增减时平滑移位、请求气泡弹出、雷达 / 列表切换过渡；发送时蓝色波纹送出，进度环匀速（线性）走满，完成时蓝环渐变为绿环、对号一笔画出、图标轻弹并送出绿色波纹；接收完成时「本机」同样变绿弹出对号
+- 修复雷达上的发送进度环没有跟随真实进度（一直是转圈的等待弧）
+- 修复收起面板后进行中的内容全部消失：面板收起后继续查找 90 秒，有发送或请求进行中就一直保持，重新打开时设备、发送进度和结果都还在
+- 修复 AX210 上 A-MPDU 收不到 Block Ack 退回单帧后发送卡住、iPad 无响应（[#39](https://github.com/zheznanohana/nekodrop/issues/39)）：退回时主动发 DELBA 结束对方的聚合会话；同一次 radio 运行中第二次出现就不再尝试聚合。未在真机验证，需要 AX210 用户确认
+- 新增自定义全局快捷键：设置 → 常规里点一下快捷键再按下新的组合键（Esc 取消，可恢复默认 Win+Shift+D）；被其他程序占用时会提示
+
+### English
+- The main window is now a flyout by the tray: bottom-right corner, closes when you click elsewhere, the tray icon toggles it, and a double click no longer closes it at once
+- Fixed a second set of minimize / maximize / close buttons in the corner
+- Fixed windows taller than the screen being cut off; device names and states are no longer clipped
+- A larger radar, devices no longer cover "This PC"; the arrows on the radar are gone
+- While receiving, a progress ring around "This PC", then green with a check mark once saved; the accept / decline bubble stays and closes after accepting
+- New motion on Windows' Fluent curves: the panel slides in and out, devices fade and grow in and glide when one comes or goes, the request bubble pops open, radar / list cross-fade; sending sends a blue wave off, the ring fills at a steady (linear) pace, and on arrival it turns green, a check is drawn in one stroke, the icon pops and a green wave leaves it; "This PC" does the same when files arrive
+- Fixed the send ring on the radar not following the real progress (it kept turning as if waiting)
+- Fixed everything under way disappearing when the panel closed: looking goes on for 90 s after it closes, and for as long as a send or a request is under way, so devices, a send's progress and its outcome are still there when it opens again
+- Fixed sending stalling on an AX210 after A-MPDU fell back to single frames for lack of Block Acks, with the iPad never answering ([#39](https://github.com/zheznanohana/nekodrop/issues/39)): the fallback now ends the peer's Block Ack session (DELBA), and a second stall in the same radio run stops aggregation. Not verified on hardware yet; needs an AX210 owner to confirm
+- New: record your own global shortcut in Settings → General (click it, press the keys; Esc cancels; Default restores Win+Shift+D); you are told when another program holds it
+
+---
+
+## v2.0.0 (Hourly / Pre-release, withdrawn / 已撤回) — 2026-11-24
+
+> 已撤回，由 2.0.2 取代（双标题栏按钮、窗口显示不全）。 / Withdrawn, replaced by 2.0.2 (two sets of title buttons, windows cut off).
+
+### 中文
+- 新增有人发文件时，在对方图标旁直接接受 / 拒绝，并显示接收进度
+- 新增雷达上的箭头：等待、发送中、已发送、被拒绝一目了然
+- 新增雷达呼吸效果
+- 新增「本机」图标可选台式机 / 笔记本（默认自动）
+- 新增 Windows「共享」菜单：资源管理器和其他应用的分享面板里可直接选 nekodrop
+- 优化 Wi-Fi 窗口：正在使用的网络整块高亮
+
+### English
+- New: accept or decline right beside the sender's icon, with the receiving progress
+- New: arrows on the radar for waiting, sending, sent and declined
+- New: a breathing radar
+- New: this PC as a desktop or a laptop (automatic by default)
+- New: nekodrop in the Windows Share sheet (Explorer and other apps)
+- Better Wi-Fi window: the network in use is highlighted
+
+---
+
+## v0.1.39 (Hourly / Pre-release, withdrawn / 已撤回) — 2026-11-24
+
+### 中文
+- 全新界面：自绘标题栏、雷达 / 列表切换、四个标签页的设置、新的 Wi-Fi 窗口和托盘菜单（[#36](https://github.com/zheznanohana/nekodrop/issues/36)）
+- 新增全局快捷键 Win+Shift+D：选中文件时直接发送，否则打开主窗口
+- 新增主题色切换：多彩、跟随系统，或蓝、靛、青、玫红
+- 新增标题栏状态面板：允许接收、切换联网方式
+- 新增文件可逐个移除、新版本横幅、各种状态下的操作按钮（重试、启动服务、前往设置等）
+
+### English
+- New interface: own title bars, radar / list view, settings in four tabs, new Wi-Fi window and tray menu ([#36](https://github.com/zheznanohana/nekodrop/issues/36))
+- New global shortcut Win+Shift+D: sends the files selected in Explorer, or opens the main window
+- New accent colour choice: colourful, same as Windows, or blue, indigo, teal, rose
+- New status panel in the title bar: allow receiving, switch the network mode
+- New: remove files one by one, an update bar, and actions for each state (retry, start the service, choose the card…)
+
+---
+
+## v0.1.38 (Hourly / Pre-release) — 2026-11-24
+
+### 中文
+- 修复 Realtek RTL8852CE 一直停在 2.4 GHz、传输很慢的 bug（[#32](https://github.com/zheznanohana/nekodrop/issues/32)）
+- 修复 Realtek / MediaTek 网卡传输中途搬信道断开的 bug
+- 更正文档：AX210 独立网卡早已可用
+
+### English
+- Fixed the Realtek RTL8852CE staying on 2.4 GHz and transferring slowly ([#32](https://github.com/zheznanohana/nekodrop/issues/32))
+- Fixed Realtek / MediaTek cards changing channel in the middle of a transfer
+- Docs: the discrete AX210 has worked for a while
+
+> 只在 CI 上测过，没有真机验证。 / CI-tested only, not on hardware.
+
+---
+
+## v0.1.37 (Hourly / Pre-release) — 2026-11-24
+
+### 中文
+- **新增 MediaTek MT7902 支持（[#34](https://github.com/zheznanohana/nekodrop/pull/34)，感谢 DaiJiequn）**：`nekodrop-radio-mt.exe` 是从 Linux mt76/mt7921 移植的用户态驱动，和 Intel、Realtek 一样通过 register proxy 驱动网卡。这张卡没有 station 模式，所以按「按需」运行：平时 Windows 正常用 Wi-Fi，有 AirDrop 时才接管。作者在一张卡上实测 iPhone ↔ 电脑双向可用，接收约 15 MB/s、发送约 5 MB/s。已知问题：2.4 GHz 上需要 ACK 的帧发不出去，所以 2.4 GHz 上不等 ACK（AirDrop 本身会转到 5 GHz）。目前只测过一张 MT7902。
+- **修复 iPhone 刚发现电脑、电脑又从列表里消失（[#32](https://github.com/zheznanohana/nekodrop/issues/32)、[#35](https://github.com/zheznanohana/nekodrop/issues/35)）**：网卡启动时，托盘程序先启动 AirDrop 引擎，过一两秒 `awdl0` 才建好。托盘程序每 5 秒检查一次 `awdl0`，把「之前没有、现在有了」当成「换了一个」，于是把刚开始工作的引擎杀掉重启。这正好发生在 iPhone 刚发现电脑的那几秒：引擎退出时发出 mDNS 下线包，iPhone 把电脑删掉，要关掉分享面板重开才能再看到。两份日志里都能看到：`awdl0` 建好约 4 秒后引擎重新打出 `ready`。引擎自己每秒都会检查 `awdl0`，出现后会自己开始接收，所以现在不再重启它。**只编译测试过，没有真机验证。**
+- **网卡找不到连续 DMA 内存时，等一会儿再重试（[#30](https://github.com/zheznanohana/nekodrop/issues/30)）**：以前每 2.7 秒重试一次，6 次都失败后就把网卡还给 Windows；而同一台电脑过 16 秒或 90 秒再启动时都成功了。现在依次等 5、10、20、30、30 秒再重试。**只编译测试过，没有真机验证。**
+- **蓝牙与 Wi-Fi 均衡共存转正，Intel 网卡始终打开（[#26](https://github.com/zheznanohana/nekodrop/pull/26)、[#4](https://github.com/zheznanohana/nekodrop/issues/4)、[#35](https://github.com/zheznanohana/nekodrop/issues/35)）**：电脑靠网卡自带的蓝牙发出信标叫醒附近的 iPhone。AX200 上打开后，设备从一两分钟找不到变成几秒内出现（感谢 XXD051030）；AX211 上打开后也没有人报告变差。设置里的开关已删除，旧配置里的值会被忽略。
+- **恢复「Wi-Fi 和 AirDrop 不在同一信道时按苹果的方式分时」开关的说明文字**：0.1.35 去掉 A-MPDU 开关时误删了它的文案，设置里显示的是键名本身。[#35](https://github.com/zheznanohana/nekodrop/issues/35) 的 AX211 上，nekodrop 连的 Wi-Fi 在 56、AirDrop 在 149 时，不开它一个 AirDrop 帧都收不到，开了就正常；README 常见问题里写明了什么时候该打开。它仍是实验性开关，默认关闭（AX200 上传输速度时快时慢）。
+- **修复卸载后残留快捷方式、安装目录和「添加/删除程序」里的条目（[#38](https://github.com/zheznanohana/nekodrop/pull/38)，感谢 GGBond-cer）**：卸载脚本结束安装目录里的进程时，把 Inno Setup 自己的卸载程序也结束了，它就没法完成后面的清理。
+
+### English
+- **New: MediaTek MT7902 support ([#34](https://github.com/zheznanohana/nekodrop/pull/34), thanks to DaiJiequn)**: `nekodrop-radio-mt.exe` is a user-mode port of Linux mt76/mt7921 that drives the card through the register proxy, as the Intel and Realtek radios do. The card has no station mode, so it runs on demand: Windows keeps its Wi-Fi, and nekodrop takes the card only for AirDrop. Tested by the author on one card: iPhone ↔ PC both ways, about 15 MB/s receiving and 5 MB/s sending. Known limit: on 2.4 GHz, frames that need an ACK never complete, so it sends without ACK there (AirDrop itself moves to 5 GHz). Only one MT7902 has been tested.
+- **Fixed the PC dropping out of the iPhone's list right after the iPhone found it ([#32](https://github.com/zheznanohana/nekodrop/issues/32), [#35](https://github.com/zheznanohana/nekodrop/issues/35))**: when the card starts, the tray app starts the AirDrop engine a second or two before `awdl0` exists. Its 5-second check took "no awdl0, now awdl0" for a new interface and restarted the engine that had just begun working, exactly while the iPhone was finding the PC: the engine's mDNS goodbye made the iPhone drop it until the share sheet was reopened. Both logs show the engine printing `ready` again about 4 s after `awdl0` appeared. The engine checks `awdl0` every second and starts receiving on its own, so it is no longer restarted then. **CI-tested only, not on hardware.**
+- **When the card finds no contiguous DMA memory, the restart waits ([#30](https://github.com/zheznanohana/nekodrop/issues/30))**: six restarts 2.7 s apart all failed and the card went back to Windows, while a start 16 s or 90 s later worked on the same PC. It now waits 5, 10, 20, 30 and 30 s. **CI-tested only, not on hardware.**
+- **Balanced Bluetooth coexistence graduates and is always on for Intel cards ([#26](https://github.com/zheznanohana/nekodrop/pull/26), [#4](https://github.com/zheznanohana/nekodrop/issues/4), [#35](https://github.com/zheznanohana/nekodrop/issues/35))**: the PC wakes nearby iPhones with a beacon from the card's own Bluetooth. On AX200, devices appeared within seconds instead of minutes (thanks to XXD051030); on AX211 nobody reported it worse. The switch is gone; an old config's value is ignored.
+- **The "Apple-style time sharing when Wi-Fi and AirDrop use different channels" switch has its text back**: it was removed by mistake with the A-MPDU switch in 0.1.35, so the checkbox showed its key. On [#35](https://github.com/zheznanohana/nekodrop/issues/35)'s AX211, with nekodrop's Wi-Fi on 56 and AirDrop on 149, the PC heard no AirDrop frame without it and worked with it; the README troubleshooting table says when to turn it on. It stays experimental and off by default (speeds went both up and down on an AX200).
+- **Fixed the uninstaller leaving shortcuts, the install folder and the Add/Remove Programs entry behind ([#38](https://github.com/zheznanohana/nekodrop/pull/38), thanks to GGBond-cer)**: the script's sweep of processes running from the install folder also killed Inno Setup's own uninstaller, which then could not finish.
 
 ---
 

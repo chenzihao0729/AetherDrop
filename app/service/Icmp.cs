@@ -2,11 +2,11 @@
 using System.Net;
 using System.Runtime.InteropServices;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>
 /// An ICMP echo sent from a given source address (IcmpSendEcho2Ex), so the
-/// gateway probe goes out on the "nekodrop" adapter and not on whatever
+/// gateway probe goes out on the "AetherDrop" adapter and not on whatever
 /// interface Windows would route by (Codex review round 2 #15: Ethernet or a
 /// VPN could answer while the Wi-Fi bridge is broken).
 /// </summary>

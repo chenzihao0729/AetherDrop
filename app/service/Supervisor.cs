@@ -2,11 +2,11 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>
-/// Owns the card and the two daemons: the user-mode radio (nekodrop-radio for
-/// Intel, nekodrop-radio-rtl for Realtek RTL8852CE) and awdld (winawdl's AWDL
+/// Owns the card and the two daemons: the user-mode radio (AetherDrop-radio for
+/// Intel, AetherDrop-radio-rtl for Realtek RTL8852CE) and awdld (winawdl's AWDL
 /// daemon). Channel policy, after
 /// ForbiddenItlwm 0.6.0: start on 6, where every country allows AWDL; when a
 /// peer's channel sequence names 44 or 149 and its country is known, restart
@@ -19,6 +19,7 @@ public sealed class Supervisor : IDisposable
 
     readonly string _root = AppContext.BaseDirectory;
     readonly object _lock = new();
+    readonly TransferActivityLeases _transfers = new();
     readonly ServiceConfig _cfg = ServiceConfig.Load();
     /// <summary>The card being driven, for the settings ("Intel AX200"), "" when none was found.</summary>
     string _cardLabel = "";
@@ -36,12 +37,15 @@ public sealed class Supervisor : IDisposable
     bool _userChose, _userOff;
     string _staSsid = "", _wifiError = "";
     (string Ssid, string? Password, bool? Auto)? _pendingConnect;
+    int _pendingScans; // scans that missed the pending network so far
     static readonly TimeSpan StaleScan = TimeSpan.FromSeconds(20);
     string _detail = "";
     bool _wanted;
     DateTime _lastUse = DateTime.UtcNow, _lastData = DateTime.UtcNow, _startedAt;
     long _rxToUs;
     int _restarts;
+    /// <summary>When the next restart may run after the radio found no contiguous DMA memory (#30).</summary>
+    DateTime _retryAt = DateTime.MinValue;
     CancellationTokenSource _cts = new();
 
     public RadioState State { get; private set; } = RadioState.Off;
@@ -82,7 +86,6 @@ public sealed class Supervisor : IDisposable
                 ["country"] = _cfg.Country,
                 ["fastUnlock"] = _cfg.FastUnlock,
                 ["coexPlan"] = _cfg.CoexPlan,
-                ["btCoex"] = _cfg.BtCoexBalanced,
                 ["card"] = _cardLabel,
                 ["manualCard"] = _cfg.ManualCard,
                 ["manualModel"] = _cfg.ManualModel,
@@ -159,7 +162,7 @@ public sealed class Supervisor : IDisposable
             windows = $"{name} {cv?.GetValue("DisplayVersion")} (build {build}.{cv?.GetValue("UBR")}, {cv?.GetValue("EditionID")})";
         }
         catch (Exception) { }
-        Say($"===== nekodrop service {version}; {windows}; mode {_cfg.Mode}, country \"{_cfg.Country}\" =====");
+        Say($"===== AetherDrop service {version}; {windows}; mode {_cfg.Mode}, country \"{_cfg.Country}\" =====");
         try
         {
             Card.Manual = (_cfg.ManualCard, _cfg.ManualModel);
@@ -199,7 +202,7 @@ public sealed class Supervisor : IDisposable
         else
         {
             EnsureVendorDriver();
-            // Networks lost by an earlier version or a card re-detected outside nekodrop.
+            // Networks lost by an earlier version or a card re-detected outside AetherDrop.
             _ = Task.Run(() => WlanBackup.Restore(Say, TimeSpan.FromSeconds(30)));
         }
         _ = Task.Run(() => Watchdog(_cts.Token));
@@ -246,24 +249,6 @@ public sealed class Supervisor : IDisposable
     }
 
     /// <summary>
-    /// Experimental balanced Bluetooth coexistence (radio --bt-coex 1): the Bluetooth beacon
-    /// that wakes Apple devices is no longer starved by AWDL; a running radio restarts to take it.
-    /// </summary>
-    public void SetBtCoex(bool on)
-    {
-        lock (_lock)
-        {
-            if (_cfg.BtCoexBalanced == on) return;
-            _cfg.BtCoexBalanced = on;
-            _cfg.Save();
-        }
-        Say($"experimental balanced Bluetooth coexistence: {(on ? "on" : "off")}");
-        if (State is RadioState.On or RadioState.Starting)
-            _ = Task.Run(() => Relaunch(_channel == 0 ? _cfg.StartChannel : _channel));
-        Publish();
-    }
-
-    /// <summary>
     /// The user's manual card choice (Settings): a PCI hardware ID and a
     /// CardCatalog.ManualModels key, or "" and "" for automatic. Used only for a
     /// card the catalog does not recognize by its ID. Returns "" or why not.
@@ -297,6 +282,22 @@ public sealed class Supervisor : IDisposable
 
     public void Touch() => _lastUse = DateTime.UtcNow;
 
+    public void TransferActivity(string owner, bool active)
+    {
+        bool changed, busy;
+        lock (_lock)
+        {
+            var now = DateTime.UtcNow;
+            var wasBusy = _transfers.Any(now);
+            _transfers.Update(owner, active, now);
+            if (active) _lastUse = now;
+            busy = _transfers.Any(now);
+            changed = wasBusy != busy;
+        }
+        if (changed) Say(busy ? "transfer session active: deferring automatic channel moves"
+            : "transfer sessions finished: normal automatic channel following resumed");
+    }
+
     public void Start(string why)
     {
         lock (_lock)
@@ -304,6 +305,7 @@ public sealed class Supervisor : IDisposable
             if (_wanted && State is RadioState.On or RadioState.Starting) return;
             _wanted = true;
             _restarts = 0;
+            _retryAt = DateTime.MinValue;
         }
         Say($"starting: {why}");
         // The peer's last channel even without a country (#4: the country only
@@ -395,6 +397,14 @@ public sealed class Supervisor : IDisposable
                 {
                     _net = fresh;
                     _known.Remember(fresh.Ssid, fresh.Passphrase, fresh.PskHex, fresh.Open);
+                    // A card whose station joins only 5 GHz (MT7902): Windows' 2.4 GHz access
+                    // point is no use, so the radio looks for the network's 5 GHz one by name.
+                    if (!_caps.StationOn24GHz && fresh.Channel <= 14)
+                    {
+                        Say($"Wi-Fi: Windows was on \"{fresh.Ssid}\" at 2.4 GHz; this card joins 5 GHz only, so AetherDrop scans for its 5 GHz access point");
+                        _net = null;
+                        lock (_lock) { _pendingConnect = (fresh.Ssid, null, null); _wantBootScan = true; }
+                    }
                 }
                 var net = _userOff ? null : _net;
                 lock (_lock) _staSsid = net?.Ssid ?? "";
@@ -409,7 +419,7 @@ public sealed class Supervisor : IDisposable
                 {
                     // Saved networks were imported into _known: start AirDrop at once and
                     // let the radio scan and join the strongest one in range (#4).
-                    Say("Wi-Fi: Windows is not connected; AirDrop starts now and nekodrop will scan for a saved network");
+                    Say("Wi-Fi: Windows is not connected; AirDrop starts now and AetherDrop will scan for a saved network");
                     lock (_lock) { _wifi = ""; _wantBootScan = true; }
                 }
                 else if (!string.IsNullOrEmpty(why))
@@ -419,7 +429,7 @@ public sealed class Supervisor : IDisposable
                     lock (_lock) _wifi = notConnected ? "" : "unsupported: " + why;
                 }
             }
-            // With nekodrop-wlan.sys the card stays where it is: Windows runs
+            // With AetherDrop-wlan.sys the card stays where it is: Windows runs
             // the station, the radio only drives AWDL through the driver.
             // Stop may have run meanwhile: never take the card or start a radio for it (Codex review #10).
             if (!_wanted) { lock (_lock) State = RadioState.Off; Publish(); return; }
@@ -427,7 +437,7 @@ public sealed class Supervisor : IDisposable
             else if (Card.Find() is { } kc) { _profile = kc.Profile; _caps = kc.Profile.Capabilities; }
             if (!_wanted) { lock (_lock) State = RadioState.Off; Publish(); return; }
             var launch = CardCatalog.BuildRadioLaunch(_profile, channel, kernel, _cfg.Country, staConf, true, _cfg.FastUnlock,
-                                                      _cfg.CoexPlan, _cfg.BtCoexBalanced);
+                                                      _cfg.CoexPlan, btCoexBalanced: true);
             _radio = Spawn(Path.Combine(_root, "radio", launch.ExeName), launch.Args, OnRadioLine);
             _startedAt = DateTime.UtcNow;
             // awdld connects to the radio's pipe; give the firmware time to boot.
@@ -482,7 +492,20 @@ public sealed class Supervisor : IDisposable
             return;
         }
         Say("awdld: " + line);
+        // "peers 1 | rx action 21, data 84 (15 joined) | ...": AWDL data from peers. The
+        // RTL8852CE and MT7902 radios print no "rx:" line, so without this a channel move
+        // (now reported by the RTL8852CE radio too, #32) never waited for a transfer to end.
+        var m = AwdldRxData.Match(line);
+        if (m.Success && long.TryParse(m.Groups[1].Value, out var data))
+        {
+            if (data != _awdldRxData) { _lastData = DateTime.UtcNow; _lastUse = DateTime.UtcNow; }
+            _awdldRxData = data;
+        }
     }
+
+    static readonly System.Text.RegularExpressions.Regex AwdldRxData =
+        new(@"\| rx action \d+, data (\d+)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    long _awdldRxData = -1;
 
     void OnRadioLine(string line)
     {
@@ -567,7 +590,8 @@ public sealed class Supervisor : IDisposable
                         bool bounce;
                         lock (_lock)
                             bounce = State == RadioState.On && _launchGen == gen && _channel == passiveCh &&
-                                     _channel > 14 && !_channelOpen && _rxToUs == 0 && _wifi != "connected";
+                                     _channel > 14 && !_channelOpen && _rxToUs == 0 && _wifi != "connected" &&
+                                     !_transfers.Any(DateTime.UtcNow);
                         if (bounce)
                         {
                             Say($"channel {passiveCh} stayed passive: back to {_cfg.StartChannel}");
@@ -623,8 +647,13 @@ public sealed class Supervisor : IDisposable
             case "scan-done":
                 lock (_lock)
                 {
-                    // One row per network name, its strongest access point.
-                    _scan = _scanPending.GroupBy(n => (string?)n["ssid"] ?? "")
+                    // One row per network name, its strongest access point. A card whose
+                    // station joins only 5 GHz (MT7902) lists 5 GHz ones only: a scan that
+                    // missed a dual-band network's 5 GHz beacon otherwise had it join the
+                    // 2.4 GHz one, which fails at once.
+                    var on24 = _caps.StationOn24GHz;
+                    _scan = _scanPending.Where(n => on24 || ((int?)n["channel"] ?? 0) > 14)
+                        .GroupBy(n => (string?)n["ssid"] ?? "")
                         .Select(g => g.OrderByDescending(n => (int?)n["dbm"] ?? -127).First())
                         .OrderByDescending(n => (int?)n["dbm"] ?? -127).ToList();
                     _scanPending = [];
@@ -651,13 +680,25 @@ public sealed class Supervisor : IDisposable
         while (true)
         {
             if (!_wanted || _channel == channel || Volatile.Read(ref _moveGen) != gen || _cfg.PeerChannel != channel) return;
-            if (DateTime.UtcNow - _lastData > TimeSpan.FromSeconds(10)) break;
-            await Task.Delay(1000);
-        }
-        if (_wanted && _channel != channel && Volatile.Read(ref _moveGen) == gen)
-        {
-            Say($"peer uses channel {channel}: moving there (country {_cfg.Country})");
-            Relaunch(channel);
+            bool idle;
+            lock (_lock) idle = !_transfers.Any(DateTime.UtcNow) && DateTime.UtcNow - _lastData > TimeSpan.FromSeconds(10);
+            if (!idle) { await Task.Delay(1000); continue; }
+            await _launchGate.WaitAsync();
+            try
+            {
+                // A phone can be preparing its video after /Ask succeeds, with
+                // no payload yet. Recheck the session after acquiring the gate.
+                lock (_lock)
+                {
+                    if (!_wanted || _channel == channel || Volatile.Read(ref _moveGen) != gen || _cfg.PeerChannel != channel) return;
+                    if (_transfers.Any(DateTime.UtcNow) || DateTime.UtcNow - _lastData <= TimeSpan.FromSeconds(10)) continue;
+                }
+                Say($"peer uses channel {channel}: moving there (country {_cfg.Country})");
+                KillDaemons();
+                LaunchLocked(channel);
+                return;
+            }
+            finally { _launchGate.Release(); }
         }
     }
 
@@ -691,6 +732,22 @@ public sealed class Supervisor : IDisposable
             if ((radioDown || awdldDown || startStuck) && (State != RadioState.Starting || startStuck) &&
                 _launchGate.CurrentCount > 0)
             {
+                // Out of contiguous DMA memory (#30): six restarts 2.7 s apart all failed
+                // the same way, while a start 16 s or 90 s later worked. Back off 5, 10, 20,
+                // 30, 30 s before each restart, so Windows has time to free memory; every
+                // other failure restarts at once as before.
+                if ((_detail ?? "").Contains("out of DMA memory") && _restarts < 5)
+                {
+                    if (_retryAt == DateTime.MinValue)
+                    {
+                        var wait = TimeSpan.FromSeconds(Math.Min(30, 5 << _restarts));
+                        _retryAt = DateTime.UtcNow + wait;
+                        Say($"the radio found no contiguous DMA memory; trying again in {wait.TotalSeconds:0} s");
+                        continue;
+                    }
+                    if (DateTime.UtcNow < _retryAt) continue;
+                }
+                _retryAt = DateTime.MinValue;
                 if (++_restarts > 5)
                 {
                     Say("the radio keeps failing; giving the card back");
@@ -733,7 +790,7 @@ public sealed class Supervisor : IDisposable
     /// <summary>
     /// The link can look connected while nothing comes back from the access
     /// point (hardware, 2026-11-17: Windows lost the internet with the station
-    /// still "connected"). Every 15 s the gateway on the "nekodrop" adapter is
+    /// still "connected"). Every 15 s the gateway on the "AetherDrop" adapter is
     /// pinged; four misses in a row (a minute) make the station join again, and
     /// four more after that restart the radio. A gateway that never answered a
     /// ping since the join is not judged (some routers drop ICMP).
@@ -778,7 +835,7 @@ public sealed class Supervisor : IDisposable
         if (_connectedAt == DateTime.MaxValue) _connectedAt = DateTime.UtcNow;
         if (DateTime.UtcNow - _connectedAt < TimeSpan.FromSeconds(20)) return; /* DHCP first */
         var adapter = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-            .FirstOrDefault(n => n.Name == "nekodrop" && n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up);
+            .FirstOrDefault(n => n.Name == "AetherDrop" && n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up);
         var props = adapter?.GetIPProperties();
         static bool V4(System.Net.IPAddress a) =>
             a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !a.Equals(System.Net.IPAddress.Any);
@@ -985,7 +1042,7 @@ public sealed class Supervisor : IDisposable
             _wifiError = "";
             _staSsid = ssid;
         }
-        Say($"Wi-Fi: joining \"{ssid}\" (chosen in nekodrop)");
+        Say($"Wi-Fi: joining \"{ssid}\" (chosen in AetherDrop)");
         _ = Task.Run(() => Relaunch(_channel == 0 ? _cfg.StartChannel : _channel));
         return "";
     }
@@ -1031,6 +1088,16 @@ public sealed class Supervisor : IDisposable
         {
             bool found;
             lock (_lock) found = _scan.Any(n => (string?)n["ssid"] == pc.Ssid);
+            // A scan hears a DFS channel's access point only by its beacons, and
+            // one scan in three missed the MT7902's 5 GHz one: look twice more.
+            if (!found && _pendingScans < 2)
+            {
+                _pendingScans++;
+                lock (_lock) _pendingConnect = pc;
+                WifiScan(pc.Ssid);
+                return;
+            }
+            _pendingScans = 0;
             var why = found ? WifiConnect(pc.Ssid, pc.Password, pc.Auto, false) : $"\"{pc.Ssid}\" was not found";
             if (why != "") lock (_lock) _wifiError = why;
             Publish();
@@ -1052,7 +1119,7 @@ public sealed class Supervisor : IDisposable
     }
 
     /// <summary>
-    /// The "nekodrop" adapter after any wired one: with the automatic metric both
+    /// The "AetherDrop" adapter after any wired one: with the automatic metric both
     /// got 25 and traffic could leave through Wi-Fi (issue #1).
     /// </summary>
     void SetTapMetric()
@@ -1066,7 +1133,7 @@ public sealed class Supervisor : IDisposable
                     UseShellExecute = false, CreateNoWindow = true,
                     RedirectStandardOutput = true, RedirectStandardError = true,
                 };
-                foreach (var a in new[] { "interface", family, "set", "interface", "nekodrop", $"metric={TapMetric}" })
+                foreach (var a in new[] { "interface", family, "set", "interface", "AetherDrop", $"metric={TapMetric}" })
                     psi.ArgumentList.Add(a);
                 using var p = Process.Start(psi);
                 if (p is null) continue;
@@ -1079,21 +1146,21 @@ public sealed class Supervisor : IDisposable
                     // What netsh said, so the log tells a missing adapter from a refusal (issue #3).
                     var why = string.Join(" ", (output.Wait(1000) ? output.Result : "") + " " + (errors.Wait(1000) ? errors.Result : ""))
                         .Replace("\r", " ").Replace("\n", " ").Trim();
-                    Say($"could not set the nekodrop adapter's {family} metric (netsh exit {p.ExitCode}): {why}");
+                    Say($"could not set the AetherDrop adapter's {family} metric (netsh exit {p.ExitCode}): {why}");
                 }
             }
-            catch (Exception e) { Say("could not set the nekodrop adapter's metric: " + e.Message); }
+            catch (Exception e) { Say("could not set the AetherDrop adapter's metric: " + e.Message); }
         }
     }
 
     /// <summary>
     /// High enough that wired Ethernet always wins the default route: Windows
     /// often assigns RouteMetric 256 + InterfaceMetric 25 = 281 to Ethernet,
-    /// which lost to nekodrop's earlier 75 + 75 = 150 (issue #11).
+    /// which lost to AetherDrop's earlier 75 + 75 = 150 (issue #11).
     /// </summary>
     const int TapMetric = 500;
 
-    /// <summary>The card runs nekodrop's kernel Wi-Fi driver (nekodrop-wlan.sys).</summary>
+    /// <summary>The card runs AetherDrop's kernel Wi-Fi driver (AetherDrop-wlan.sys).</summary>
     static bool KernelDriver => Card.Find() is { } k && Card.ByKernelDriver(k);
 
     void EnsureVendorDriver()
@@ -1124,7 +1191,7 @@ public sealed class Supervisor : IDisposable
         {
             if (File.ReadAllText(fullInf).Contains(card.Profile.ProxyInfStem, StringComparison.OrdinalIgnoreCase))
             {
-                Say($"{Path.GetFileName(fullInf)} on record is nekodrop's own driver, not {vendor}'s; " +
+                Say($"{Path.GetFileName(fullInf)} on record is AetherDrop's own driver, not {vendor}'s; " +
                     $"run Start menu > AetherDrop - restore Windows Wi-Fi to get {vendor}'s driver back");
                 lock (_lock) { _cfg.VendorInf = ""; _cfg.Save(); }
                 return;

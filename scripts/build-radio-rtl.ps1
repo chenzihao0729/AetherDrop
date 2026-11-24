@@ -18,6 +18,10 @@ if (-not (Test-Path (Join-Path $devourerSrc 'CMakeLists.txt'))) {
   throw "devourer sources missing at $devourerSrc`: run scripts\fetch-deps.ps1 first."
 }
 
+# AetherDrop's change to the radio: it reports the phone's 5 GHz AWDL channel (#32).
+& python -I "$PSScriptRoot\patch-radio-rtl.py" $winawdl
+if ($LASTEXITCODE -ne 0) { throw 'RTL radio patch failed' }
+
 $vcpkgCandidates = New-Object System.Collections.Generic.List[string]
 foreach ($c in $env:VCPKG_ROOT, $env:VCPKG_INSTALLATION_ROOT, 'C:\vcpkg') {
   if ($c) { $vcpkgCandidates.Add($c) }

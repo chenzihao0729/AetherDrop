@@ -1,7 +1,8 @@
 /third_party/
 /build/
 /driver/regproxy/build/
-/.claude/
+/.claude/*
+!/.claude/skills/
 /app/*/bin/
 /app/*/obj/
 /tests/*/bin/

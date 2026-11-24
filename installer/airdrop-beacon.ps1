@@ -4,7 +4,7 @@
 # airdrop\sender.py starts and stops it. -DryRun builds it and sends nothing.
 # Windows PowerShell 5.1 only: PowerShell 7 cannot load the Bluetooth API so.
 #
-# nekodrop's copy of winawdl's scripts\airdrop-beacon.ps1 (MIT), with two
+# AetherDrop's copy of winawdl's scripts\airdrop-beacon.ps1 (MIT), with two
 # changes (#22): it leaves the folder it was started in (the install
 # folder's airdrop\, which it otherwise held open, so an uninstall could not
 # remove it), and it exits once the AirDrop engine that started it is gone,
@@ -77,9 +77,17 @@ public static class AirDropBeaconWatch {
   } catch { }
 
   # Type 5 (AirDrop), 18 bytes: eight zeros, version 1, four two-byte hashes
-  # of the sender's contact details, a zero. The hashes are random here.
+  # of the sender's contact details, a zero. With an Apple ID identity the
+  # engine passes the owner's prefixes (Apple ID, phone, email, second email)
+  # in AETHERDROP_BLE_HASHES, so iPhones set to Contacts Only wake for a known
+  # sender; otherwise they are random.
   $hashes = New-Object byte[] 8
-  (New-Object Random).NextBytes($hashes)
+  $known = $env:AETHERDROP_BLE_HASHES
+  if ($known -match '^[0-9a-fA-F]{16}$') {
+    for ($i = 0; $i -lt 8; $i++) { $hashes[$i] = [Convert]::ToByte($known.Substring(2 * $i, 2), 16) }
+  } else {
+    (New-Object Random).NextBytes($hashes)
+  }
   [byte[]]$payload = @(0x05, 0x12) + (,0 * 8) + @(0x01) + $hashes + @(0x00)
 
   $data = New-Object "$namespace.BluetoothLEManufacturerData"

@@ -24,7 +24,8 @@ class PipeServer {
 public:
   /* `stopping` is polled while an operation waits, so a blocked read or
    * connect ends soon after the daemon is asked to stop. */
-  PipeServer(const std::string &name, std::function<bool()> stopping)
+  PipeServer(const std::string &name, std::function<bool()> stopping,
+             DWORD buffer_bytes = kBufferBytes)
       : _stopping(std::move(stopping)) {
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, FALSE};
     PSECURITY_DESCRIPTOR sd = nullptr;
@@ -36,7 +37,7 @@ public:
                                      FILE_FLAG_FIRST_PIPE_INSTANCE,
                                  PIPE_TYPE_BYTE | PIPE_READMODE_BYTE |
                                      PIPE_REJECT_REMOTE_CLIENTS,
-                                 1, kBufferBytes, kBufferBytes, 0, &sa);
+                                 1, buffer_bytes, buffer_bytes, 0, &sa);
       LocalFree(sd);
     }
     _read_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
@@ -144,6 +145,19 @@ public:
     const bool ok = write_all(_rx_batch.data(), static_cast<DWORD>(_rx_batch.size()));
     _rx_batch.clear();
     return ok;
+  }
+
+  /* Writes a pre-framed batch of radio_link messages in one system call. */
+  bool send_raw(std::span<const uint8_t> bytes) {
+    if (!_connected) return false;
+    if (bytes.empty()) return true;
+    std::lock_guard<std::mutex> lock(_write_mutex);
+    if (!_rx_batch.empty()) {
+      const bool ok = write_all(_rx_batch.data(), static_cast<DWORD>(_rx_batch.size()));
+      _rx_batch.clear();
+      if (!ok) return false;
+    }
+    return write_all(bytes.data(), static_cast<DWORD>(bytes.size()));
   }
 
 private:

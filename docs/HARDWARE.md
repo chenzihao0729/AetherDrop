@@ -1,6 +1,6 @@
 # Wi-Fi cards beyond the supported Intel ones
 
-nekodrop drives the Wi-Fi chip itself, from user mode, so every chip family
+AetherDrop drives the Wi-Fi chip itself, from user mode, so every chip family
 needs its own driver. Today that is the Intel 22000 / AX210 family, ported from
 ForbiddenItlwm's `hal_iwx` (see the table in the [README](../README.md#功能与兼容性)).
 This note records what it would take to support other cards, and why the first
@@ -8,13 +8,13 @@ step is only better detection in the diagnostic report.
 
 ## Which card do I have?
 
-Run the diagnostic report (Start menu → *nekodrop - diagnostic report*). On a
-PC without nekodrop, download [`installer/report.ps1`](../installer/report.ps1)
+Run the diagnostic report (Start menu → *AetherDrop - diagnostic report*). On a
+PC without AetherDrop, download [`installer/report.ps1`](../installer/report.ps1)
 and run `powershell -ExecutionPolicy Bypass -File report.ps1`; it needs no
-nekodrop install. Without a supported card, its *Summary* names the card it
+AetherDrop install. Without a supported card, its *Summary* names the card it
 found and its *Wi-Fi card* section lists every wireless card with its PCI ID
 (`VEN_xxxx&DEV_xxxx`), chip, driver, Device Manager problem code and why
-nekodrop does not run on it. The cards come from three sources: adapters whose
+AetherDrop does not run on it. The cards come from three sources: adapters whose
 medium is native 802.11, known Wi-Fi chip IDs (which also finds a card that is
 disabled or has no driver), and adapter names. Ethernet chips from the same
 vendors (Realtek `10EC:8168`, Intel `8086:15xx`) are never listed.
@@ -31,8 +31,8 @@ a card or administrator rights.
 |---|---|---|---|
 | Intel QnJ, SnJ, Meteor Lake (Ma) | `8086:2720` `2726` `2729` `7E40` | depends on upstream | `iwxradio/src/cards.h` knows them, but ForbiddenItlwm ships no firmware for them (QuQnj API 48, SoSnj and Ma API 63). `8086:7E40` is often sold as "AX211". |
 | Intel Wi-Fi 7: BE200, BE201/BE211 | `8086:272B` `A840` `7740` `E440` … | depends on upstream | ForbiddenItlwm has no Wi-Fi 7 driver. |
-| Another Intel device ID | `8086:*` | maybe easy | If upstream has firmware for it, adding the ID to `cards.h`, `CardCatalog.cs`, the register proxy's INF and `install.ps1` may be all. The report says *an Intel device ID nekodrop does not know*: please post it. |
-| **Realtek RTL8852CE** | `10EC:C852` | **built-in (on-demand)** | Native dual-binary backend (`nekodrop-radio-rtl.exe`, from winawdl/devourer) is built and offline-tested in CI; awaiting real-hardware confirmation inside nekodrop. See below. |
+| Another Intel device ID | `8086:*` | maybe easy | If upstream has firmware for it, adding the ID to `cards.h`, `CardCatalog.cs`, the register proxy's INF and `install.ps1` may be all. The report says *an Intel device ID AetherDrop does not know*: please post it. |
+| **Realtek RTL8852CE** | `10EC:C852` | **built-in (on-demand)** | Native dual-binary backend (`AetherDrop-radio-rtl.exe`, from winawdl/devourer) is built and offline-tested in CI; awaiting real-hardware confirmation inside AetherDrop. See below. |
 | Other Realtek (RTL8852AE/BE, RTL8851BE, RTL8922AE, RTL8821CE/8822CE…) | `10EC:*` | low | No user-mode Windows driver; winawdl's devourer is built only for the 8852C on Windows. |
 | MediaTek MT7921/7922/7925/7927/7902, AMD RZ608/616/717 | `14C3:*` | low (long project) | No user-mode Windows driver exists. Would be a port of Linux `mt76` (registers, DMA, firmware, power) with nobody here owning the hardware. |
 | Qualcomm (FastConnect 6800/6900/7800), Atheros | `17CB:*` `168C:*` | low | No user-mode Windows driver path. |
@@ -41,7 +41,7 @@ a card or administrator rights.
 
 ### Realtek RTL8852CE
 
-[winawdl](https://github.com/raph559/winawdl), which nekodrop is built on (its
+[winawdl](https://github.com/raph559/winawdl), which AetherDrop is built on (its
 radio pipe, awdld and AirDrop engine, and the register proxy in
 `driver/regproxy`), runs AirDrop on the RTL8852CE in user mode through
 [devourer](https://github.com/raph559/devourer)'s `winawdl/pcie-windows`
@@ -49,10 +49,10 @@ branch. Its register proxy's INF matches only `PCI\VEN_10EC&DEV_C852`, and its
 radio build turns on only devourer's `KESTREL_8852C`. RTL8852CE owners can use
 winawdl today: AirDrop only, with no Wi-Fi connection while it has the card.
 
-nekodrop now ships RTL8852CE support **built-in** (not hidden behind an
+AetherDrop now ships RTL8852CE support **built-in** (not hidden behind an
 off-by-default experimental switch) using a modular dual-binary dispatch:
-Intel cards keep `radio\nekodrop-radio.exe` with 100% unchanged flags and
-behavior, while RTL8852CE runs `radio\nekodrop-radio-rtl.exe` (winawdl's
+Intel cards keep `radio\AetherDrop-radio.exe` with 100% unchanged flags and
+behavior, while RTL8852CE runs `radio\AetherDrop-radio-rtl.exe` (winawdl's
 `winawdl_radio.exe` backed by `raph559/devourer`, speaking the exact same
 `\\.\pipe\winawdl-radio` v3 protocol and `regproxy_ioctl.h` v2 interface):
 
@@ -67,7 +67,7 @@ behavior, while RTL8852CE runs `radio\nekodrop-radio-rtl.exe` (winawdl's
    statically (`/MT`, `x64-windows-static`) and runs its four offline unit
    tests (`block_ack_test`, `reorder_buffer_test`, `outgoing_session_test`,
    `dma_address_test`); `scripts/build-installer.ps1` stages it as
-   `radio\nekodrop-radio-rtl.exe` alongside `licenses\devourer-GPL-2.0.txt`.
+   `radio\AetherDrop-radio-rtl.exe` alongside `licenses\devourer-GPL-2.0.txt`.
 3. **Wi-Fi beside AirDrop.** devourer only monitors and injects; it has no
    station. `CardCatalog.EffectiveMode` automatically downgrades
    `NetMode.Concurrent` to `NetMode.OnDemand` from the card's profile, while
@@ -75,9 +75,9 @@ behavior, while RTL8852CE runs `radio\nekodrop-radio-rtl.exe` (winawdl's
 4. **Taking, launching and giving back the card.** `CardCatalog.cs` marks
    `10EC:C852` active (`RadioBackendKind.Devourer`) and provides
    `BuildRadioLaunch`, which strips Intel-only CLI flags when spawning
-   `nekodrop-radio-rtl.exe`. `installer/install.ps1` and `installer/report.ps1`
+   `AetherDrop-radio-rtl.exe`. `installer/install.ps1` and `installer/report.ps1`
    classify `10EC:C852` as `supported-rtl`, and `install.ps1`, `restore.ps1`,
-   `uninstall.ps1` and `report.ps1` all include `nekodrop-radio-rtl`. All
+   `uninstall.ps1` and `report.ps1` all include `AetherDrop-radio-rtl`. All
    three scripts' `-SelfTest` suites run offline under Windows PowerShell 5.1
    in `scripts/build-installer.ps1`.
 
@@ -87,27 +87,27 @@ behavior, while RTL8852CE runs `radio\nekodrop-radio-rtl.exe` (winawdl's
 `AdapterProfile` holds the PCI vendor and device ID, the vendor's name, the
 radio that drives it (`Iwx` for Intel, `Devourer` for Realtek RTL8852CE), its
 `AdapterCapabilities` (Wi-Fi beside AirDrop, faster sending, A-MPDU sending,
-nekodrop-wlan.sys, the smallest register BAR), the register proxy's INF,
+AetherDrop-wlan.sys, the smallest register BAR), the register proxy's INF,
 service and provider, and the provider names of the vendor's own driver.
 `Card.cs` takes only *active* profiles; `Supervisor.cs` runs the mode the
 card can run (`CardCatalog.EffectiveMode`: *together* becomes *on demand*
 without a station) and uses `CardCatalog.BuildRadioLaunch` to select
-`nekodrop-radio.exe` or `nekodrop-radio-rtl.exe` with only the options that
+`AetherDrop-radio.exe` or `AetherDrop-radio-rtl.exe` with only the options that
 backend accepts. The 15 Intel profiles have every capability, so nothing
 changes for them.
 
 All 16 profiles (15 Intel + Realtek RTL8852CE `10EC:C852`) are active.
-`NekoDropService.exe --selftest` (run by `scripts/build-installer.ps1`, so on
+`AetherDropService.exe --selftest` (run by `scripts/build-installer.ps1`, so on
 every CI build) checks the multi-vendor parsing, the forced *on demand* mode,
 provider matching and `BuildRadioLaunch` across both `Iwx` and `Devourer`
-without a card or administrator rights. `NekoDropService.exe --status` prints
+without a card or administrator rights. `AetherDropService.exe --status` prints
 the profile of the card it finds.
 
 ### The radio's backend contract
 
 The radio daemon (`iwxradio/src/radio_main.cpp`) runs one AWDL engine over a
 *backend*: `IwxDevice` (the user-mode Intel driver) or `KernelDevice`
-(nekodrop-wlan.sys, `--kernel`). `iwxradio/src/radio_backend.h` is the
+(AetherDrop-wlan.sys, `--kernel`). `iwxradio/src/radio_backend.h` is the
 contract between them: the shared frame, rate and option types, and a
 `RadioCapabilities` set that each backend declares as `kCapabilities`.
 `radio_main.cpp` branches on those bits (`if constexpr`) instead of asking
@@ -147,7 +147,7 @@ the RX and TX-status handlers, `poll`, `check_health`, `healthy`,
 ## The steps
 
 1. **Detection (done).** The diagnostic report names every wireless card, its
-   chip and driver and why nekodrop does not run on it. Diagnostics and docs
+   chip and driver and why AetherDrop does not run on it. Diagnostics and docs
    only: no driver, installer, service or radio change.
 2. **Service card catalog (done).** `CardCatalog.cs` above: profiles and
    capabilities instead of Intel assumptions in `Card.cs` and
@@ -158,17 +158,17 @@ the RX and TX-status handlers, `poll`, `check_health`, `healthy`,
    cards or the kernel driver.
 4. **Installer message (done).** `install.ps1` refuses unsupported cards with
    the same classification as `report.ps1`: every detected wireless card, its
-   PCI/USB ID, why nekodrop does not run on it, an upstream `winawdl` pointer
+   PCI/USB ID, why AetherDrop does not run on it, an upstream `winawdl` pointer
    for an RTL8852CE (`10EC:C852`), and `installer/report.ps1` guidance, in pure
    ASCII for Inno Setup's error box, checked offline by `install.ps1 -SelfTest`.
-5. **Built-in RTL8852CE (done, awaiting real-hardware confirmation inside nekodrop).**
+5. **Built-in RTL8852CE (done, awaiting real-hardware confirmation inside AetherDrop).**
    `regproxy.c` selects the largest memory BAR (`>= 8 KiB`), `winawdl_regproxy.inf`
    adds generic `PCI\VEN_10EC&DEV_C852`, `build-radio-rtl.ps1` builds and tests
-   winawdl/devourer's `nekodrop-radio-rtl.exe`, `CardCatalog.cs` activates
+   winawdl/devourer's `AetherDrop-radio-rtl.exe`, `CardCatalog.cs` activates
    `10EC:C852` as a native built-in backend (not behind an off-by-default
    experimental switch) automatically downgraded to *on demand*, and
    `install.ps1`, `report.ps1`, `restore.ps1`, and `uninstall.ps1` all support
-   it. Intel cards keep `nekodrop-radio.exe` and their exact existing behavior.
+   it. Intel cards keep `AetherDrop-radio.exe` and their exact existing behavior.
 
 When adding IDs, keep `AllProfiles` in `app/service/CardCatalog.cs`,
 `$SupportedIntelIds` (and `$SupportedCardPattern`) in `installer/report.ps1`,

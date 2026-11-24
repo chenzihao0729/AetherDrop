@@ -15,7 +15,7 @@ inline void operator delete(void *, void *) noexcept {}
 
 #define NEKO_TAG 'okeN'
 #define NEKO_LOG(fmt, ...) \
-  DbgPrintEx(DPFLTR_IHVNETWORK_ID, DPFLTR_ERROR_LEVEL, "nekodrop: " fmt "\n", __VA_ARGS__)
+  DbgPrintEx(DPFLTR_IHVNETWORK_ID, DPFLTR_ERROR_LEVEL, "AetherDrop: " fmt "\n", __VA_ARGS__)
 
 /* Raw frames: 802.11 header first, no FCS. */
 struct NEKO_FRAME {
@@ -34,7 +34,7 @@ struct NEKO_JOB {
   UINT16 MessageId;
   PVOID Buffer;
   UINT InLength, OutLength;
-  WDFREQUEST IoRequest;    /* a NekodropAwdl control request instead of WDI */
+  WDFREQUEST IoRequest;    /* a AetherDropAwdl control request instead of WDI */
   ULONG IoCode;
 };
 

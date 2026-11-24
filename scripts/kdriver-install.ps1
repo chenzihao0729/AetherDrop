@@ -1,17 +1,17 @@
 #Requires -RunAsAdministrator
-# Installs the nekodrop kernel driver (build\kdriver\package) on this PC and
+# Installs the AetherDrop kernel driver (build\kdriver\package) on this PC and
 # moves the AX201 to it. Needs test signing (bcdedit /set testsigning on, then
 # a reboot), which this script checks but never changes.
 #   1. remembers which INF the card uses now (Intel's), for kdriver-restore.ps1
 #   2. signs the package with a certificate made here, trusts it, deletes its key
 #   3. adds the package to the driver store and binds it to the card
-# Log: %ProgramData%\nekodrop\kdriver-install.log. Undo: kdriver-restore.ps1.
+# Log: %ProgramData%\AetherDrop\kdriver-install.log. Undo: kdriver-restore.ps1.
 # The package: beside this script when installed, else the build output.
-param([string]$Package = $(if (Test-Path (Join-Path $PSScriptRoot 'nekodrop-wlan.inf')) { $PSScriptRoot }
+param([string]$Package = $(if (Test-Path (Join-Path $PSScriptRoot 'AetherDrop-wlan.inf')) { $PSScriptRoot }
                           else { Join-Path (Split-Path $PSScriptRoot -Parent) 'build\kdriver\package' }))
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$state = Join-Path $env:ProgramData 'nekodrop'
+$state = Join-Path $env:ProgramData 'AetherDrop'
 New-Item -ItemType Directory -Force $state | Out-Null
 Start-Transcript (Join-Path $state 'kdriver-install.log') -Force | Out-Null
 try {
@@ -24,21 +24,21 @@ try {
   if (-not $dev) { throw 'No Intel AX201-family card found.' }
   $inf = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName DEVPKEY_Device_DriverInfPath).Data
   "card $($dev.InstanceId), driver INF now: $inf"
-  if ($inf -and $inf -notmatch 'nekodrop') { Set-Content (Join-Path $state 'vendor-inf.txt') $inf }
+  if ($inf -and $inf -notmatch 'AetherDrop') { Set-Content (Join-Path $state 'vendor-inf.txt') $inf }
 
-  $work = Join-Path $env:TEMP "nekodrop-kdriver-$(Get-Random)"
+  $work = Join-Path $env:TEMP "AetherDrop-kdriver-$(Get-Random)"
   Copy-Item $Package $work -Recurse
-  $subject = 'CN=nekodrop driver (signed on this PC)'
+  $subject = 'CN=AetherDrop driver (signed on this PC)'
   foreach ($store in 'Root', 'TrustedPublisher') {
     Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object Subject -eq $subject | Remove-Item
   }
   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation Cert:\CurrentUser\My `
             -KeyExportPolicy NonExportable -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(10)
   try {
-    $cer = Join-Path $work 'nekodrop-signing.cer'
+    $cer = Join-Path $work 'AetherDrop-signing.cer'
     Export-Certificate -Cert $cert -FilePath $cer | Out-Null
     foreach ($store in 'Root', 'TrustedPublisher') { Import-Certificate -FilePath $cer -CertStoreLocation "Cert:\LocalMachine\$store" | Out-Null }
-    foreach ($f in 'nekodrop-wlan.sys', 'nekodrop-wlan.cat') {
+    foreach ($f in 'AetherDrop-wlan.sys', 'AetherDrop-wlan.cat') {
       $r = Set-AuthenticodeSignature -FilePath (Join-Path $work $f) -Certificate $cert -HashAlgorithm SHA256
       if ($r.Status -ne 'Valid') { throw "$f could not be signed: $($r.StatusMessage)" }
     }
@@ -47,7 +47,7 @@ try {
   }
   'signed'
 
-  pnputil /add-driver (Join-Path $work 'nekodrop-wlan.inf') | Out-Host
+  pnputil /add-driver (Join-Path $work 'AetherDrop-wlan.inf') | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "pnputil could not add the package ($LASTEXITCODE)" }
 
   # Intel's driver ranks higher: bind ours the way devcon update does.
@@ -57,14 +57,14 @@ public static extern bool UpdateDriverForPlugAndPlayDevicesW(System.IntPtr hwnd,
 '@
   $hwid = ($dev.InstanceId -split '&SUBSYS')[0]
   $reboot = $false
-  if (-not [Neko.NewDev]::UpdateDriverForPlugAndPlayDevicesW([IntPtr]::Zero, $hwid, (Join-Path $work 'nekodrop-wlan.inf'), 1, [ref]$reboot)) {
+  if (-not [Neko.NewDev]::UpdateDriverForPlugAndPlayDevicesW([IntPtr]::Zero, $hwid, (Join-Path $work 'AetherDrop-wlan.inf'), 1, [ref]$reboot)) {
     throw "binding failed: $([ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()).Message)"
   }
   Start-Sleep 5
   $now = Get-PnpDevice -InstanceId $dev.InstanceId
   "device now: $($now.FriendlyName), status $($now.Status), problem $($now.Problem)$(if ($reboot) { ' (reboot requested)' })"
-  Get-NetAdapter | Where-Object InterfaceDescription -match 'nekodrop' | Format-Table Name, InterfaceDescription, Status, MacAddress
-  'Open Windows Wi-Fi settings: the nekodrop adapter should list networks.'
+  Get-NetAdapter | Where-Object InterfaceDescription -match 'AetherDrop' | Format-Table Name, InterfaceDescription, Status, MacAddress
+  'Open Windows Wi-Fi settings: the AetherDrop adapter should list networks.'
 } catch {
   $_ | Out-String
   'Failed. scripts\kdriver-restore.ps1 gives the card back to Intel.'

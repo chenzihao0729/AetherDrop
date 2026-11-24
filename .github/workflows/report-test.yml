@@ -16,8 +16,8 @@ jobs:
       - name: Fixture logs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "$env:ProgramData\nekodrop" | Out-Null
-          Copy-Item .github\report-fixture\ProgramData\* "$env:ProgramData\nekodrop\"
+          New-Item -ItemType Directory -Force "$env:ProgramData\AetherDrop" | Out-Null
+          Copy-Item .github\report-fixture\ProgramData\* "$env:ProgramData\AetherDrop\"
       - name: Run report.ps1 (Windows PowerShell 5.1)
         shell: powershell
         run: |
@@ -28,8 +28,8 @@ jobs:
         shell: pwsh
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'report'
-          $md = Get-ChildItem $out -Filter 'nekodrop-report-*.md' | Select-Object -First 1
-          $txt = Get-ChildItem $out -Filter 'nekodrop-logs-*.txt' | Select-Object -First 1
+          $md = Get-ChildItem $out -Filter 'AetherDrop-report-*.md' | Select-Object -First 1
+          $txt = Get-ChildItem $out -Filter 'AetherDrop-logs-*.txt' | Select-Object -First 1
           if (-not $md -or -not $txt) { throw 'report files missing' }
           $r = Get-Content $md.FullName -Raw
           $all = $r + (Get-Content $txt.FullName -Raw)

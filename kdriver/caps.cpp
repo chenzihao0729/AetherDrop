@@ -27,7 +27,7 @@ NTSTATUS NekoSetCapabilities(NEKO_DEVICE *dev) {
   WIFI_DEVICE_CAPABILITIES_INIT(&device);
   device.HardwareRadioState = TRUE;
   device.SoftwareRadioState = TRUE;
-  RtlCopyMemory(device.FirmwareVersion, "iwlwifi-QuZ 68 (nekodrop)", sizeof("iwlwifi-QuZ 68 (nekodrop)"));
+  RtlCopyMemory(device.FirmwareVersion, "iwlwifi-QuZ 68 (AetherDrop)", sizeof("iwlwifi-QuZ 68 (AetherDrop)"));
   device.ActionFramesSupported = FALSE;
   device.NumRxStreams = 2;
   device.NumTxStreams = 2;

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * KernelDevice: the listener of nekodrop-wlan.sys (the kernel Wi-Fi driver)
+ * KernelDevice: the listener of AetherDrop-wlan.sys (the kernel Wi-Fi driver)
  * behind the radio backend contract (radio_backend.h), so the AWDL engine
  * and its upstream 0.6.0 policies run unchanged while Windows keeps its Wi-Fi
- * on the same card. Talks to \\.\NekodropAwdl (kdriver/nekoioctl.h).
+ * on the same card. Talks to \\.\AetherDropAwdl (kdriver/aetherdrop_ioctl.h).
  *
  * It implements only what kCapabilities declares: no Intel A-MPDU queue, no
  * firmware scan, no country notice (the driver answers it itself) and no

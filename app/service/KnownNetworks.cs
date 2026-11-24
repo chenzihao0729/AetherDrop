@@ -5,14 +5,14 @@ using System.Security.Principal;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>
-/// The Wi-Fi networks nekodrop can join itself, like Windows' saved networks:
+/// The Wi-Fi networks AetherDrop can join itself, like Windows' saved networks:
 /// imported from Windows' profiles while Intel's driver has the card, and
 /// added when the user connects with a password. Stored encrypted with DPAPI
 /// (machine scope) in a file only SYSTEM and Administrators can open, since
-/// once nekodrop owns the card Windows' own profiles can no longer be read.
+/// once AetherDrop owns the card Windows' own profiles can no longer be read.
 /// </summary>
 public sealed class KnownNetworks
 {

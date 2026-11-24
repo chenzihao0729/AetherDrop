@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>
 /// winawdl's AirDrop engine (airdrop\engine.py, MIT), run in the user's session
@@ -87,7 +87,13 @@ public sealed class Engine : IDisposable
         var openssl = Path.Combine(Root, "openssl");
         if (Directory.Exists(openssl)) psi.Environment["PATH"] = openssl + ";" + Environment.GetEnvironmentVariable("PATH");
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
-        psi.Environment["NEKODROP_SERVICE_ID"] = s.ServiceId; /* one device on the iPhone across restarts */
+        psi.Environment["AETHERDROP_SERVICE_ID"] = s.ServiceId; /* one device on the iPhone across restarts */
+        // Contacts Only: the Apple ID identity for installer\AetherDrop_identity.py.
+        if (s.AppleIdOn && AppleId.Present)
+        {
+            psi.Environment["AETHERDROP_IDENTITY"] = AppleId.Dir;
+            psi.Environment["AETHERDROP_RECEIVE"] = s.Receive == "contacts" ? "contacts" : "everyone";
+        }
         try { _process = Process.Start(psi); }
         catch (Exception e) { error = e.Message; return false; }
         if (_process is null) { error = "the engine did not start"; return false; }
@@ -130,6 +136,24 @@ public sealed class Engine : IDisposable
 
     public void Apply(Settings s) =>
         Send(new JsonObject { ["do"] = "set", ["name"] = s.DeviceName, ["folder"] = s.SaveFolder, ["ask"] = s.Ask });
+
+    /// <summary>Allow the settings UI to keep rendering while the engine exits.</summary>
+    public async Task StopAsync()
+    {
+        var process = _process;
+        Send(new JsonObject { ["do"] = "quit" });
+        if (process is null) return;
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        catch (TimeoutException)
+        {
+            try { process.Kill(); await process.WaitForExitAsync(); }
+            catch (InvalidOperationException) { }
+        }
+        catch (InvalidOperationException) { }
+    }
 
     public void Dispose()
     {

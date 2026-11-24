@@ -4,7 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>Animate only the button surface; its text stays at native size.</summary>
 internal sealed class FloatingButton : Button

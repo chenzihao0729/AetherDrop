@@ -1,11 +1,12 @@
-# Builds every part of nekodrop, stages it in build\stage, and makes
-# build\nekodrop-<version>-setup.exe with Inno Setup 6 (or a zip without it).
-#   radio\    nekodrop-radio.exe (Intel) + Intel firmware, nekodrop-radio-rtl.exe (RTL8852CE)
+﻿# Builds every part of AetherDrop, stages it in build\stage, and makes
+# build\AetherDrop-<version>-setup.exe with Inno Setup.
+#   radio\    AetherDrop-radio.exe (Intel), AetherDrop-radio-rtl.exe (RTL8852CE),
+#             AetherDrop-radio-mt.exe (MT7902) and their firmware
 #   awdl\     awdld.exe (winawdl's AWDL daemon, OWL) + wintun.dll
 #   airdrop\  winawdl's AirDrop engine (Python, MIT)
 #   python\   the Python embeddable distribution
 #   driver\   the register-proxy UMDF driver package (signed on the target PC)
-#   AetherDrop.exe (client), NekoDropService.exe (service), install/uninstall scripts
+#   AetherDrop.exe (client), AetherDropService.exe (service), install/uninstall scripts
 # -Offline skips the downloads (Python embeddable, TAP-Windows) and uses what
 # build\downloads already holds.
 param([switch]$Offline, [string]$PythonVersion = '3.12.8', [string]$TapVersion = '9.24.7-I601')
@@ -15,20 +16,34 @@ $repo = Split-Path $PSScriptRoot -Parent
 $stage = "$repo\build\stage"
 $downloads = "$repo\build\downloads"
 $tools = Initialize-Toolchain
-if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+if ([IO.Path]::GetFullPath($stage) -ne (Join-Path ([IO.Path]::GetFullPath($repo)) 'build\stage')) { throw 'Unexpected staging path' }
+if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
 New-Item -ItemType Directory -Force $stage, $downloads | Out-Null
 
 'radio'
 & "$PSScriptRoot\build-radio.ps1" | Out-Null
 New-Item -ItemType Directory -Force "$stage\radio\firmware" | Out-Null
-Copy-Item "$repo\build\iwxradio\winawdl_radio.exe" "$stage\radio\nekodrop-radio.exe"
+Copy-Item "$repo\build\iwxradio\winawdl_radio.exe" "$stage\radio\AetherDrop-radio.exe"
 Copy-Item "$repo\build\iwxradio\firmware\*" "$stage\radio\firmware\"
 
 'radio (Realtek RTL8852CE)'
 & "$PSScriptRoot\build-radio-rtl.ps1" | Out-Null
 $rtlRadio = "$repo\build\rtlradio\winawdl_radio.exe"
 if (-not (Test-Path $rtlRadio)) { throw "RTL radio binary missing: $rtlRadio" }
-Copy-Item $rtlRadio "$stage\radio\nekodrop-radio-rtl.exe"
+Copy-Item $rtlRadio "$stage\radio\AetherDrop-radio-rtl.exe"
+
+'radio (MediaTek MT7902)'
+& "$PSScriptRoot\build-radio-mt.ps1" | Out-Null
+$mtBuild = "$repo\build\mtradio"
+Copy-Item "$mtBuild\AetherDrop-radio-mt.exe" "$stage\radio\"
+Copy-Item "$mtBuild\firmware\WIFI_RAM_CODE_MT7902_1.bin", "$mtBuild\firmware\WIFI_MT7902_patch_mcu_1_1_hdr.bin" "$stage\radio\firmware\"
+
+'radio (MediaTek MT7922/MT7921)'
+& "$PSScriptRoot\build-radio-mtk.ps1" | Out-Null
+$mtkBuild = "$repo\build\mtkradio"
+Copy-Item "$mtkBuild\AetherDrop-radio-mtk.exe" "$stage\radio\"
+Copy-Item "$mtkBuild\firmware\WIFI_MT7922_patch_mcu_1_1_hdr.bin", "$mtkBuild\firmware\WIFI_RAM_CODE_MT7922_1.bin",
+          "$mtkBuild\firmware\WIFI_MT7961_patch_mcu_1_2_hdr.bin", "$mtkBuild\firmware\WIFI_RAM_CODE_MT7961_1.bin" "$stage\radio\firmware\"
 
 'awdl'
 & "$PSScriptRoot\build-awdl.ps1" -MinGW "$repo\third_party\winlibs\mingw64\bin" | Out-Null
@@ -38,12 +53,33 @@ Copy-Item "$repo\third_party\winawdl\build\awdl\awdld.exe", "$repo\third_party\w
 'airdrop engine'
 New-Item -ItemType Directory -Force "$stage\airdrop" | Out-Null
 Copy-Item "$repo\third_party\winawdl\airdrop\*.py", "$repo\third_party\winawdl\airdrop\LICENSE" "$stage\airdrop\"
+# AetherDrop's Apple ID identity for the engine (Contacts Only), hooked in by patch-engine.py.
+Copy-Item "$repo\installer\AetherDrop_identity.py" "$stage\airdrop\"
 & python -I "$PSScriptRoot\patch-engine.py" "$stage\airdrop"
 if ($LASTEXITCODE -ne 0) { throw 'engine patch failed' }
 # sender.py looks for the Bluetooth beacon script in ..\scripts beside its own folder.
 New-Item -ItemType Directory -Force "$stage\scripts" | Out-Null
-# nekodrop's copy (#22): leaves the install folder and exits with the engine.
+# AetherDrop's copy (#22): leaves the install folder and exits with the engine.
 Copy-Item "$repo\installer\airdrop-beacon.ps1" "$stage\scripts\"
+
+'apple id sign-in (Contacts Only)'
+# WirDrop's appleid.exe (64-bit) and appleid-anisette.exe (32-bit, it loads iCloud's
+# own AOSKit): the client runs them to sign in to an Apple ID and keep the AirDrop
+# certificate fresh. Needs Rust; without it the setting stays off (Everyone only).
+$wd = "$repo\third_party\WirDrop"
+if ((Get-Command cargo -ErrorAction SilentlyContinue) -and (Test-Path "$wd\Cargo.toml")) {
+  & python -I "$PSScriptRoot\patch-appleid.py" $wd
+  if ($LASTEXITCODE -ne 0) { throw 'appleid patch failed' }
+  Push-Location $wd
+  try {
+    cargo build --release --locked -q -p wirdrop-appleid
+    if ($LASTEXITCODE -ne 0) { throw 'appleid build failed' }
+    cargo build --release --locked -q -p wirdrop-appleid-anisette --target i686-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw 'appleid-anisette build failed' }
+  } finally { Pop-Location }
+  New-Item -ItemType Directory -Force "$stage\appleid" | Out-Null
+  Copy-Item "$wd\target\release\appleid.exe", "$wd\target\i686-pc-windows-msvc\release\appleid-anisette.exe", "$wd\LICENSE" "$stage\appleid\"
+} else { '  (no Rust or no third_party\WirDrop: Apple ID sign-in left out)' }
 
 'driver'
 & "$repo\driver\regproxy\build.ps1" | Out-Null
@@ -57,16 +93,16 @@ if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed ($LASTEXITCODE)" }
 'Explorer context menu (Windows 11 first level)'
 $shellBuild = "$repo\build\shellext"
 New-Item -ItemType Directory -Force "$shellBuild\pkg\Assets" | Out-Null
-& $tools.Cl /nologo /utf-8 /O2 /EHsc /W4 /WX /LD /MT "$repo\app\shellext\shell.cpp" "/Fo$shellBuild\\" "/Fe$shellBuild\nekodrop-shell.dll" `
+& $tools.Cl /nologo /utf-8 /O2 /EHsc /W4 /WX /LD /MT "$repo\app\shellext\shell.cpp" "/Fo$shellBuild\\" "/Fe$shellBuild\AetherDrop-shell.dll" `
   /link /DEF:"$repo\app\shellext\shell.def" shell32.lib ole32.lib shlwapi.lib advapi32.lib user32.lib | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "context menu DLL build failed ($LASTEXITCODE)" }
-Copy-Item "$shellBuild\nekodrop-shell.dll" $stage
+Copy-Item "$shellBuild\AetherDrop-shell.dll" $stage
 Copy-Item "$repo\installer\sparse\AppxManifest.xml" "$shellBuild\pkg\"
 Copy-Item "$repo\app\assets\logo150.png" "$shellBuild\pkg\Assets\logo.png"
 Copy-Item "$repo\app\assets\logo44.png" "$shellBuild\pkg\Assets\logo44.png"
 $makeAppx = Join-Path (Split-Path $tools.SignTool) 'makeappx.exe'
 New-Item -ItemType Directory -Force "$stage\shell" | Out-Null
-& $makeAppx pack /o /nv /d "$shellBuild\pkg" /p "$stage\shell\nekodrop-shell.msix" | Out-Null
+& $makeAppx pack /o /nv /d "$shellBuild\pkg" /p "$stage\shell\AetherDrop-shell.msix" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed ($LASTEXITCODE)" }
 # install.ps1 signs the package on the target PC with the certificate it makes there.
 # signtool loads its signing and APPX libraries as side-by-side assemblies from its own folder.
@@ -90,14 +126,14 @@ Copy-Item "$PSScriptRoot\kdriver-install.ps1", "$PSScriptRoot\kdriver-restore.ps
 # apps cannot overwrite each other's runtime libraries in the shared folder.
 $single = '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true',
           '-p:EnableCompressionInSingleFile=true', '-p:DebugType=none'
-dotnet publish "$repo\app\service\NekoDrop.Service.csproj" -c Release -o "$stage" --nologo -v q @single
+dotnet publish "$repo\app\service\AetherDrop.Service.csproj" -c Release -o "$stage" --nologo -v q @single
 if ($LASTEXITCODE -ne 0) { throw 'service publish failed' }
 # The card catalog's offline checks (app/service/CardCatalog.cs): no card or admin rights needed.
-& "$stage\NekoDropService.exe" --selftest
+& "$stage\AetherDropService.exe" --selftest
 if ($LASTEXITCODE -ne 0) { throw 'service self-test failed' }
-dotnet publish "$repo\app\client\NekoDrop.csproj" -c Release -o "$stage" --nologo -v q @single
+dotnet publish "$repo\app\client\AetherDrop.csproj" -c Release -o "$stage" --nologo -v q @single
 if ($LASTEXITCODE -ne 0) { throw 'client publish failed' }
-Copy-Item "$repo\installer\install.ps1", "$repo\installer\uninstall.ps1", "$repo\installer\setup-tap.ps1",
+Copy-Item "$repo\installer\install.ps1", "$repo\installer\uninstall.ps1", "$repo\installer\uninstall.cmd", "$repo\installer\setup-tap.ps1",
           "$repo\installer\restore.ps1", "$repo\installer\restore.cmd",
           "$repo\installer\report.ps1", "$repo\installer\report.cmd" $stage
 # uninstall.ps1 and setup-tap.ps1 have no self-test: parse them (and the rest)
@@ -145,20 +181,20 @@ Copy-Item "$repo\third_party\ForbiddenItlwm\iwlwifi-firmware-license" "$stage\li
 Copy-Item "$repo\third_party\winawdl\LICENSE" "$stage\licenses\winawdl-MIT.txt"
 Copy-Item "$repo\third_party\winawdl\awdl\LICENSE" "$stage\licenses\awdld-GPL-3.0.txt"
 Copy-Item "$repo\third_party\winawdl\airdrop\LICENSE" "$stage\licenses\airdrop-engine-MIT.txt"
-Copy-Item "$repo\LICENSE" "$stage\licenses\nekodrop-GPL-2.0.txt"
+Copy-Item "$repo\LICENSE" "$stage\licenses\AetherDrop-GPL-2.0.txt"
+Copy-Item "$mtBuild\firmware\LICENCE.mediatek" "$stage\licenses\mediatek-firmware.txt"
+Copy-Item "$repo\mtradio\LICENSE.mt76" "$stage\licenses\mt76-BSD-3-Clause.txt"
 Copy-Item "$repo\third_party\winawdl\deps\wintun\LICENSE.txt" "$stage\licenses\wintun.txt"
 $devourerLicense = @("$repo\third_party\winawdl\upstream\devourer\LICENSE", "$repo\third_party\winawdl\radio\LICENSE") |
   Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($devourerLicense) { Copy-Item $devourerLicense "$stage\licenses\devourer-GPL-2.0.txt" }
 
-$iscc = @("$repo\third_party\innosetup\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
+$iscc = @("$repo\build\innosetup\ISCC.exe", "$repo\third_party\innosetup\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
         Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($iscc) {
-  & $iscc "$repo\installer\nekodrop.iss" | Out-Null
+  & $iscc "$repo\installer\AetherDrop.iss" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
   Get-ChildItem "$repo\build\AetherDrop-*-setup.exe" | Select-Object Name, Length
 } else {
-  $zip = "$repo\build\AetherDrop-0.1.35-windows-x64.zip"
-  Compress-Archive "$stage\*" $zip -Force
-  "Inno Setup not found: made $zip instead (unzip, then run install.ps1 as administrator)."
+  throw 'Inno Setup not found. Install Inno Setup to build the EXE installer.'
 }

@@ -108,6 +108,46 @@ uint8_t cck_plcp(unsigned mbps_x2) {
   }
 }
 
+uint32_t le32_at(const uint8_t *p) {
+  return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+}
+
+uint16_t le16_at(const uint8_t *p) { return static_cast<uint16_t>(p[0] | p[1] << 8); }
+
+/* Per-chunk maximum SEC_RT sizes across all PNVM_SKU blocks matching (mac, rf),
+ * used to pre-allocate fragmented PNVM buffers before DmaPool::trim(). */
+std::vector<size_t> pnvm_max_chunks(const uint8_t *d, size_t len, uint32_t mac, uint32_t rf) {
+  std::vector<size_t> best, cur;
+  bool in_block = false, hw = false;
+  const auto finish = [&] {
+    if (!in_block || !hw) return;
+    if (cur.size() > best.size()) best.resize(cur.size(), 0);
+    for (size_t i = 0; i < cur.size(); i++) best[i] = std::max(best[i], cur[i]);
+  };
+  while (len >= 8) {
+    const uint32_t type = le32_at(d), tl = le32_at(d + 4);
+    d += 8;
+    len -= 8;
+    if (len < tl) break;
+    if (type == IWX_UCODE_TLV_PNVM_SKU) {
+      finish();
+      in_block = true;
+      hw = false;
+      cur.clear();
+    } else if (in_block && type == IWX_UCODE_TLV_HW_TYPE && tl >= 4) {
+      hw = hw || (le16_at(d) == mac && le16_at(d + 2) == rf);
+    } else if (in_block && type == IWX_UCODE_TLV_SEC_RT && tl >= 4 && le32_at(d) != 0xddddeeee) {
+      if (cur.size() < IWX_IPC_DRAM_MAP_ENTRY_NUM_MAX) cur.push_back(tl - 4);
+    }
+    const size_t step = roundup(tl, 4);
+    if (step > len) break;
+    d += step;
+    len -= step;
+  }
+  finish();
+  return best;
+}
+
 } // namespace
 
 IwxDevice::~IwxDevice() { stop(); }
@@ -129,6 +169,17 @@ bool IwxDevice::nic_lock() {
     _nic_locks++;
     return true;
   }
+  if (bz()) {
+    setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_BZ_MAC_ACCESS_REQ);
+    delay_us(2);
+    if (poll_bit(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_MAC_STATUS,
+                 IWX_CSR_GP_CNTRL_REG_FLAG_MAC_STATUS, 150000)) {
+      _nic_locks++;
+      return true;
+    }
+    _log("acquiring the device (Bz MAC access) failed");
+    return false;
+  }
   setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
   delay_us(2);
   if (poll_bit(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_VAL_MAC_ACCESS_EN,
@@ -144,7 +195,23 @@ bool IwxDevice::nic_lock() {
 
 void IwxDevice::nic_unlock() {
   if (_nic_locks > 0 && --_nic_locks == 0)
-    clrb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
+    clrb(IWX_CSR_GP_CNTRL,
+         bz() ? IWX_CSR_GP_CNTRL_REG_FLAG_BZ_MAC_ACCESS_REQ : IWX_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
+}
+
+void IwxDevice::sw_reset() {
+  if (bz()) {
+    setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_SW_RESET);
+    delay_us(20000);
+  } else {
+    setb(IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_SW_RESET);
+    delay_us(5000);
+  }
+}
+
+void IwxDevice::ring_rx_doorbell(unsigned idx) {
+  if (bz()) wr(IWX_HBUS_TARG_WRPTR, idx | IWX_HBUS_TARG_WRPTR_RX_Q(0));
+  else wr(IWX_RFH_Q0_FRBDCB_WIDX_TRG, idx);
 }
 
 /* The two accesses of a peripheral read go in one proxy call. */
@@ -204,10 +271,10 @@ bool IwxDevice::identify(std::string &error) {
   }
   _fw_name = _card.firmware;
   _integrated = _card.integrated;
-  _log(_card.name + (_card.ax210 ? " (AX210 family" : " (22000 family") +
+  _log(_card.name + (_card.bz ? " (Bz family" : _card.ax210 ? " (AX210 family" : " (22000 family") +
        (_integrated ? ", integrated)" : ", discrete)") + ", firmware " + _fw_name +
        (_card.pnvm.empty() ? "" : " + " + _card.pnvm) +
-       (_card.tested ? "" : "; this card has not been tested with nekodrop"));
+       (_card.tested ? "" : "; this card has not been tested with AetherDrop"));
   return true;
 }
 
@@ -218,6 +285,11 @@ bool IwxDevice::alloc_rings(std::string &error) {
   const auto pages_of = [](size_t bytes) { return (bytes + DmaPool::kPageBytes - 1) / DmaPool::kPageBytes; };
   const unsigned tx_count = gen3() ? kTxQueueSizeAx210 : kTxQueueSize22000;
   const unsigned cmd_count = gen3() ? IWX_CMD_QUEUE_SIZE_GEN3 : IWX_CMD_QUEUE_SIZE;
+  const size_t rx_used_elem = bz()     ? sizeof(iwx_rx_completion_desc_bz)
+                              : gen3() ? sizeof(iwx_rx_completion_desc)
+                                       : sizeof(uint32_t);
+  const size_t bc_tbl_size = bz() ? sizeof(iwx_bz_bc_tbl)
+                                  : std::max(sizeof(iwx_agn_scd_bc_tbl), sizeof(iwx_gen3_bc_tbl));
   std::vector<size_t> need;
   for (const auto &sec : _fw.regular) need.push_back(pages_of(sec.len));
   need.push_back(pages_of(_fw.iml_len));
@@ -225,9 +297,19 @@ bool IwxDevice::alloc_rings(std::string &error) {
   need.push_back(pages_of(tx_count * sizeof(iwx_tfh_tfd)));
   need.push_back(pages_of(tx_count * sizeof(iwx_tfh_tfd)));
   if (_opt.aggregate) need.push_back(pages_of(tx_count * sizeof(iwx_tfh_tfd)));
-  need.push_back(pages_of(IWX_RX_MQ_RING_COUNT * (gen3() ? sizeof(iwx_rx_completion_desc) : sizeof(uint32_t))));
+  if (bz()) {
+    for (int i = 0; i < (_opt.aggregate ? 4 : 3); i++) need.push_back(pages_of(bc_tbl_size));
+  }
+  need.push_back(pages_of(IWX_RX_MQ_RING_COUNT * rx_used_elem));
   need.push_back(pages_of(IWX_RX_MQ_RING_COUNT * (gen3() ? sizeof(iwx_rx_transfer_desc) : sizeof(uint64_t))));
-  if (gen3()) need.push_back(kPnvmPagesMax);
+  if (gen3()) {
+    if (_fw.has_capa(IWX_UCODE_TLV_CAPA_FRAGMENTED_PNVM_IMG) && _fw.pnvm && _fw.pnvm_len) {
+      for (size_t sz : pnvm_max_chunks(_fw.pnvm, _fw.pnvm_len, cards::mac_type(_hw_rev), cards::rf_type(_hw_rf_id)))
+        need.push_back(pages_of(sz));
+    } else {
+      need.push_back(kPnvmPagesMax);
+    }
+  }
   for (int i = 0; i < 4; i++) need.push_back(8); /* margin: first fit is not best fit */
   const auto report = [&](const char *what) {
     _log(std::string("DMA: ") + what + " " + std::to_string(_dma.pages_locked()) + " pages, longest physical run " +
@@ -260,7 +342,7 @@ bool IwxDevice::alloc_rings(std::string &error) {
    * bits and 32-bit used entries; the AX210 family 16-byte transfer and
    * 32-byte completion descriptors (iwx_alloc_rx_ring). */
   _rx_free = _dma.alloc(IWX_RX_MQ_RING_COUNT * (gen3() ? sizeof(iwx_rx_transfer_desc) : sizeof(uint64_t)), 256);
-  _rx_used = _dma.alloc(IWX_RX_MQ_RING_COUNT * (gen3() ? sizeof(iwx_rx_completion_desc) : sizeof(uint32_t)), 256);
+  _rx_used = _dma.alloc(IWX_RX_MQ_RING_COUNT * rx_used_elem, 256);
   _rx_stat = _dma.alloc(sizeof(iwx_rb_status), 16);
   if (!_ctxt_info || !_rx_free || !_rx_used || !_rx_stat) {
     error = "out of DMA memory for the rings";
@@ -280,7 +362,7 @@ bool IwxDevice::alloc_rings(std::string &error) {
     ring.count = count;
     ring.qid = qid;
     ring.desc = _dma.alloc(count * sizeof(iwx_tfh_tfd), 256);
-    ring.bc_tbl = _dma.alloc(std::max(sizeof(iwx_agn_scd_bc_tbl), sizeof(iwx_gen3_bc_tbl)), 1024);
+    ring.bc_tbl = _dma.alloc(bc_tbl_size, 1024);
     bool ok = ring.desc && ring.bc_tbl;
     if (payload) {
       /* Data ring: a page per slot for the TX command and one for the
@@ -377,6 +459,16 @@ bool IwxDevice::apm_init() {
   /* iwx_apm_config also clears ASPM in PCI config space, which a UMDF
    * driver cannot reach; the L0s bit here is the part within the BAR. */
   setb(IWX_CSR_GIO_REG, IWX_CSR_GIO_REG_VAL_L0S_DISABLED);
+  if (bz()) {
+    setb(IWX_CSR_GP_CNTRL,
+         IWX_CSR_GP_CNTRL_REG_FLAG_BZ_MAC_ACCESS_REQ | IWX_CSR_GP_CNTRL_REG_FLAG_MAC_INIT);
+    if (!poll_bit(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_MAC_STATUS,
+                  IWX_CSR_GP_CNTRL_REG_FLAG_MAC_STATUS, 25000)) {
+      _log("timeout waiting for the Bz MAC clock to stabilise");
+      return false;
+    }
+    return true;
+  }
   setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_INIT_DONE);
   if (!poll_bit(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY,
                 IWX_CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY, 25000)) {
@@ -393,6 +485,16 @@ void IwxDevice::apm_stop() {
   delay_us(1000);
   clrb(IWX_CSR_DBG_LINK_PWR_MGMT_REG, IWX_CSR_RESET_LINK_PWR_MGMT_DISABLED);
   delay_us(5000);
+  if (bz()) {
+    setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_BUS_MASTER_DISABLE_REQ);
+    if (!poll_bit(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_BUS_MASTER_DISABLE_STATUS,
+                  IWX_CSR_GP_CNTRL_REG_FLAG_BUS_MASTER_DISABLE_STATUS, 100))
+      _log("timeout waiting for the Bz bus master to stop");
+    delay_us(20000);
+    clrb(IWX_CSR_GP_CNTRL,
+         IWX_CSR_GP_CNTRL_REG_FLAG_MAC_INIT | IWX_CSR_GP_CNTRL_REG_FLAG_BZ_MAC_ACCESS_REQ);
+    return;
+  }
   setb(IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_STOP_MASTER);
   if (!poll_bit(IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_MASTER_DISABLED,
                 IWX_CSR_RESET_REG_FLAG_MASTER_DISABLED, 100))
@@ -416,8 +518,7 @@ bool IwxDevice::start_hw() {
     return false;
   }
   clear_persistence_bit();
-  setb(IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_SW_RESET);
-  delay_us(5000);
+  sw_reset();
   if (_integrated && !gen3()) {
     setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_INIT_DONE);
     delay_us(20);
@@ -464,6 +565,7 @@ void IwxDevice::nic_config() {
 }
 
 void IwxDevice::set_ltr() {
+  if (bz()) return; /* Linux iwl_pcie_set_ltr skips Bz */
   const uint32_t ltr =
       IWX_CSR_LTR_LONG_VAL_AD_NO_SNOOP_REQ |
       (IWX_CSR_LTR_LONG_VAL_AD_SCALE_USEC << 26) /* NO_SNOOP_SCALE */ |
@@ -613,19 +715,47 @@ bool IwxDevice::load_firmware(std::string &error) {
    * but its buffer has to come from the pool before trim() hands the rest
    * back: allocated afterwards it never fit ("PNVM: out of DMA memory"), and
    * the firmware asserted at NVM_ACCESS_COMPLETE (issues #2, #7, #8). */
-  if (gen3() && !_card.pnvm.empty()) {
-    std::string path = _opt.firmware_dir, err;
-    if (!path.empty() && path.back() != '\\' && path.back() != '/') path += '\\';
-    if (!plat_read_file(path + _card.pnvm, _pnvm_raw, err)) {
-      _log("PNVM: " + err);
-      _pnvm_raw.clear();
-    } else if (const size_t max_section = pnvm_max_section(_pnvm_raw, cards::mac_type(_hw_rev),
-                                                           cards::rf_type(_hw_rf_id))) {
-      /* Only this card's largest section (at most 4 pages), not the file. */
-      _pnvm_buf = _dma.alloc(max_section, 4096);
-      if (!_pnvm_buf) {
-        error = "out of DMA memory for the platform NVM (PNVM)";
-        return false;
+  if (gen3() && (_fw.pnvm || !_card.pnvm.empty())) {
+    const uint8_t *pnvm_data = _fw.pnvm;
+    size_t pnvm_len = _fw.pnvm_len;
+    if (!pnvm_data && !_card.pnvm.empty()) {
+      std::string path = _opt.firmware_dir, err;
+      if (!path.empty() && path.back() != '\\' && path.back() != '/') path += '\\';
+      if (!plat_read_file(path + _card.pnvm, _pnvm_raw, err)) {
+        _log("PNVM: " + err);
+        _pnvm_raw.clear();
+      } else {
+        pnvm_data = _pnvm_raw.data();
+        pnvm_len = _pnvm_raw.size();
+      }
+    }
+    if (pnvm_data && pnvm_len) {
+      if (_fw.has_capa(IWX_UCODE_TLV_CAPA_FRAGMENTED_PNVM_IMG)) {
+        const auto chunks = pnvm_max_chunks(pnvm_data, pnvm_len, cards::mac_type(_hw_rev),
+                                            cards::rf_type(_hw_rf_id));
+        if (!chunks.empty()) {
+          _pnvm_desc = _dma.alloc(sizeof(iwx_prph_scratch_mem_desc_addr_array), 4096);
+          _pnvm_chunks.clear();
+          _pnvm_chunks.reserve(chunks.size());
+          bool ok = static_cast<bool>(_pnvm_desc);
+          for (size_t sz : chunks) {
+            DmaBuf b = _dma.alloc(sz, 4096);
+            ok = ok && static_cast<bool>(b);
+            _pnvm_chunks.push_back(b);
+          }
+          if (!ok) {
+            error = "out of DMA memory for the fragmented platform NVM (PNVM)";
+            return false;
+          }
+        }
+      } else if (const size_t max_section = pnvm_max_section(_pnvm_raw, cards::mac_type(_hw_rev),
+                                                             cards::rf_type(_hw_rf_id))) {
+        /* Only this card's largest section (at most 4 pages), not the file. */
+        _pnvm_buf = _dma.alloc(max_section, 4096);
+        if (!_pnvm_buf) {
+          error = "out of DMA memory for the platform NVM (PNVM)";
+          return false;
+        }
       }
     }
   }
@@ -675,10 +805,11 @@ bool IwxDevice::load_firmware(std::string &error) {
   /* From here the card may write into our memory: arm the stop the proxy
    * replays if this process dies (iwx_disable_rx_dma + stop master). */
   {
-    std::vector<RegOp> close_ops{
-        {IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_STOP_MASTER, 2},
-        {IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_SW_RESET, 2},
-    };
+    std::vector<RegOp> close_ops =
+        bz() ? std::vector<RegOp>{{IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_BUS_MASTER_DISABLE_REQ, 2},
+                                  {IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_SW_RESET, 2}}
+             : std::vector<RegOp>{{IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_STOP_MASTER, 2},
+                                  {IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_SW_RESET, 2}};
     if (!_proxy.set_close_ops(close_ops)) {
       error = "could not arm the DMA stop the driver replays on exit; refusing to start DMA";
       return false;
@@ -698,15 +829,22 @@ bool IwxDevice::load_firmware(std::string &error) {
     wr(IWX_CSR_CTXT_INFO_BA + 4, static_cast<uint32_t>(_ctxt_info.pa >> 32));
   }
   set_ltr();
-  if (!nic_lock()) {
-    error = "MAC access failed before the firmware kick";
-    return false;
+  if (bz()) {
+    wr(IWX_CSR_FUNC_SCRATCH, IWX_CSR_FUNC_SCRATCH_INIT_VALUE);
+    setb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_ROM_START);
+  } else {
+    if (!nic_lock()) {
+      error = "MAC access failed before the firmware kick";
+      return false;
+    }
+    write_umac_prph(IWX_UREG_CPU_INIT_RUN, 1);
+    nic_unlock();
   }
-  write_umac_prph(IWX_UREG_CPU_INIT_RUN, 1);
-  nic_unlock();
 
   /* The ALIVE cause latches in CSR_INT; the firmware has then set up the
-   * receive engine, so hand it the free buffers (iwx_intr's ALIVE branch). */
+   * receive engine, so hand it the free buffers (iwx_intr's ALIVE branch).
+   * On Bz also check CSR_MSIX_HW_INT_CAUSES_AD in case silicon routes causes
+   * there without PCI MSI-X (see docs/BE200.md). */
   {
     const uint64_t end = now_us() + 1000000;
     bool alive_cause = false;
@@ -720,6 +858,19 @@ bool IwxDevice::load_firmware(std::string &error) {
       if (cause != 0xffffffffu && (cause & (IWX_CSR_INT_BIT_SW_ERR | IWX_CSR_INT_BIT_HW_ERR))) {
         wr(IWX_CSR_INT, cause);
         break;
+      }
+      if (bz()) {
+        const uint32_t hw_cause = rd(IWX_CSR_MSIX_HW_INT_CAUSES_AD);
+        if (hw_cause != 0xffffffffu && (hw_cause & IWX_MSIX_HW_INT_CAUSES_REG_ALIVE)) {
+          wr(IWX_CSR_MSIX_HW_INT_CAUSES_AD, hw_cause);
+          alive_cause = true;
+          break;
+        }
+        if (hw_cause != 0xffffffffu &&
+            (hw_cause & (IWX_MSIX_HW_INT_CAUSES_REG_SW_ERR_BZ | IWX_MSIX_HW_INT_CAUSES_REG_HW_ERR))) {
+          wr(IWX_CSR_MSIX_HW_INT_CAUSES_AD, hw_cause);
+          break;
+        }
       }
       delay_us(1000);
     }
@@ -735,7 +886,7 @@ bool IwxDevice::load_firmware(std::string &error) {
       return false;
     }
     for (unsigned i = 0; i < IWX_RX_MQ_RING_COUNT; i++) post_rx_buf(i);
-    wr(IWX_RFH_Q0_FRBDCB_WIDX_TRG, 8);
+    ring_rx_doorbell(8);
   }
   if (!wait_for([&] { return _alive_seen; }, 1000)) {
     error = "ALIVE interrupt seen but no ALIVE notification arrived";
@@ -753,65 +904,88 @@ bool IwxDevice::load_firmware(std::string &error) {
   return true;
 }
 
-namespace {
-uint32_t le32_at(const uint8_t *p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
-uint16_t le16_at(const uint8_t *p) { return static_cast<uint16_t>(p[0] | p[1] << 8); }
-} // namespace
-
 /* iwx_load_pnvm + iwx_read_pnvm + iwx_pnvm_handle_section: the platform NVM
- * section for this SKU and MAC/radio, from iwlwifi-*.pnvm, goes to the
- * firmware through the peripheral scratch; then the doorbell, and the
- * firmware answers PNVM_INIT_COMPLETE. */
+ * section for this SKU and MAC/radio (from embedded TLV 74 or iwlwifi-*.pnvm)
+ * goes to the firmware through the peripheral scratch (flat buffer on AX210,
+ * or descriptor pointer array when FRAGMENTED_PNVM_IMG is set); then the
+ * doorbell, and the firmware answers PNVM_INIT_COMPLETE. */
 bool IwxDevice::load_pnvm() {
   if (!_sku_id[0] && !_sku_id[1] && !_sku_id[2]) return true; /* nothing to do */
-  std::vector<uint8_t> section;
-  if (!_pnvm_raw.empty()) { /* read in load_firmware, before the pool was trimmed */
-    {
-      const uint8_t *data = _pnvm_raw.data();
-      size_t len = _pnvm_raw.size();
-      while (len >= 8 && section.empty()) {
-        const uint32_t type = le32_at(data), tlv_len = le32_at(data + 4);
-        len -= 8;
-        data += 8;
-        if (len < tlv_len || roundup(tlv_len, 4) > len) break;
-        if (type == IWX_UCODE_TLV_PNVM_SKU && tlv_len >= 12 && le32_at(data) == _sku_id[0] &&
-            le32_at(data + 4) == _sku_id[1] && le32_at(data + 8) == _sku_id[2]) {
-          /* This SKU's section: the TLVs up to the next SKU. */
-          const uint8_t *s = data + roundup(tlv_len, 4);
-          size_t slen = len - roundup(tlv_len, 4);
-          bool hw_match = false;
-          std::vector<uint8_t> collected;
-          while (slen >= 8) {
-            const uint32_t st = le32_at(s), sl = le32_at(s + 4);
-            slen -= 8;
-            s += 8;
-            if (slen < sl) break;
-            if (st == IWX_UCODE_TLV_PNVM_SKU) break;
-            if (st == IWX_UCODE_TLV_HW_TYPE && sl >= 4 && !hw_match)
-              hw_match = le16_at(s) == cards::mac_type(_hw_rev) && le16_at(s + 2) == cards::rf_type(_hw_rf_id);
-            if (st == IWX_UCODE_TLV_SEC_RT && sl >= 4 && le32_at(s) != 0xddddeeee)
-              collected.insert(collected.end(), s + 4, s + sl);
-            if (roundup(sl, 4) > slen) break;
-            slen -= roundup(sl, 4);
-            s += roundup(sl, 4);
-          }
-          if (hw_match && !collected.empty()) section = std::move(collected);
-          else _log("PNVM: this SKU's section is for another MAC/radio");
+  const uint8_t *pnvm_data = (_fw.pnvm && _fw.pnvm_len) ? _fw.pnvm : _pnvm_raw.data();
+  const size_t pnvm_len = (_fw.pnvm && _fw.pnvm_len) ? _fw.pnvm_len : _pnvm_raw.size();
+  std::vector<std::vector<uint8_t>> chunks;
+  if (pnvm_data && pnvm_len) {
+    const uint8_t *data = pnvm_data;
+    size_t len = pnvm_len;
+    while (len >= 8 && chunks.empty()) {
+      const uint32_t type = le32_at(data), tlv_len = le32_at(data + 4);
+      len -= 8;
+      data += 8;
+      if (len < tlv_len || roundup(tlv_len, 4) > len) break;
+      if (type == IWX_UCODE_TLV_PNVM_SKU && tlv_len >= 12 && le32_at(data) == _sku_id[0] &&
+          le32_at(data + 4) == _sku_id[1] && le32_at(data + 8) == _sku_id[2]) {
+        /* This SKU's section: the TLVs up to the next SKU. */
+        const uint8_t *s = data + roundup(tlv_len, 4);
+        size_t slen = len - roundup(tlv_len, 4);
+        bool hw_match = false;
+        std::vector<std::vector<uint8_t>> collected;
+        while (slen >= 8) {
+          const uint32_t st = le32_at(s), sl = le32_at(s + 4);
+          slen -= 8;
+          s += 8;
+          if (slen < sl) break;
+          if (st == IWX_UCODE_TLV_PNVM_SKU) break;
+          if (st == IWX_UCODE_TLV_HW_TYPE && sl >= 4 && !hw_match)
+            hw_match = le16_at(s) == cards::mac_type(_hw_rev) && le16_at(s + 2) == cards::rf_type(_hw_rf_id);
+          if (st == IWX_UCODE_TLV_SEC_RT && sl >= 4 && le32_at(s) != 0xddddeeee)
+            collected.emplace_back(s + 4, s + sl);
+          if (roundup(sl, 4) > slen) break;
+          slen -= roundup(sl, 4);
+          s += roundup(sl, 4);
         }
-        data += roundup(tlv_len, 4);
-        len -= roundup(tlv_len, 4);
+        if (hw_match && !collected.empty()) chunks = std::move(collected);
+        else _log("PNVM: this SKU's section is for another MAC/radio");
       }
+      data += roundup(tlv_len, 4);
+      len -= roundup(tlv_len, 4);
     }
   }
-  if (!section.empty()) {
-    if (!_pnvm_buf || section.size() > _pnvm_buf.size) {
-      _log("PNVM: no buffer for " + std::to_string(section.size()) + " bytes");
+  if (!chunks.empty()) {
+    if (_fw.has_capa(IWX_UCODE_TLV_CAPA_FRAGMENTED_PNVM_IMG)) {
+      bool ok = static_cast<bool>(_pnvm_desc) && chunks.size() <= _pnvm_chunks.size() &&
+                chunks.size() <= IWX_IPC_DRAM_MAP_ENTRY_NUM_MAX;
+      size_t total = 0;
+      for (size_t i = 0; ok && i < chunks.size(); i++) {
+        ok = _pnvm_chunks[i] && chunks[i].size() <= _pnvm_chunks[i].size;
+        total += chunks[i].size();
+      }
+      if (!ok) {
+        _log("PNVM: no fragmented buffer for " + std::to_string(chunks.size()) + " chunks");
+      } else {
+        auto *arr = reinterpret_cast<iwx_prph_scratch_mem_desc_addr_array *>(_pnvm_desc.va);
+        std::memset(arr, 0, sizeof(*arr));
+        for (size_t i = 0; i < chunks.size(); i++) {
+          std::memcpy(_pnvm_chunks[i].va, chunks[i].data(), chunks[i].size());
+          arr->mem_descs[i] = htole64(_pnvm_chunks[i].pa);
+        }
+        auto &ctrl = reinterpret_cast<iwx_prph_scratch *>(_prph_scratch.va)->ctrl_cfg;
+        ctrl.pnvm_cfg.pnvm_base_addr = htole64(_pnvm_desc.pa);
+        ctrl.pnvm_cfg.pnvm_size = htole32(static_cast<uint32_t>(total));
+        _log("PNVM: " + std::to_string(total) + " bytes in " + std::to_string(chunks.size()) +
+             " fragmented chunks for this SKU");
+      }
     } else {
-      std::memcpy(_pnvm_buf.va, section.data(), section.size());
-      auto &ctrl = reinterpret_cast<iwx_prph_scratch *>(_prph_scratch.va)->ctrl_cfg;
-      ctrl.pnvm_cfg.pnvm_base_addr = htole64(_pnvm_buf.pa);
-      ctrl.pnvm_cfg.pnvm_size = htole32(static_cast<uint32_t>(section.size()));
-      _log("PNVM: " + std::to_string(section.size()) + " bytes for this SKU");
+      std::vector<uint8_t> section;
+      for (const auto &c : chunks) section.insert(section.end(), c.begin(), c.end());
+      if (!_pnvm_buf || section.size() > _pnvm_buf.size) {
+        _log("PNVM: no buffer for " + std::to_string(section.size()) + " bytes");
+      } else {
+        std::memcpy(_pnvm_buf.va, section.data(), section.size());
+        auto &ctrl = reinterpret_cast<iwx_prph_scratch *>(_prph_scratch.va)->ctrl_cfg;
+        ctrl.pnvm_cfg.pnvm_base_addr = htole64(_pnvm_buf.pa);
+        ctrl.pnvm_cfg.pnvm_size = htole32(static_cast<uint32_t>(section.size()));
+        _log("PNVM: " + std::to_string(section.size()) + " bytes for this SKU");
+      }
     }
   } else {
     _log("PNVM: none for this SKU; the firmware goes on without it");
@@ -832,6 +1006,8 @@ bool IwxDevice::load_pnvm() {
 /* iwx_run_init_mvm_ucode(readnvm = 1) followed by the parts of iwx_init_hw
  * a monitor needs. */
 bool IwxDevice::run_init_sequence(std::string &error) {
+  _use_mld = bz() && _fw.has_capa(IWX_UCODE_TLV_CAPA_MLD_API_SUPPORT);
+  if (_use_mld) _log("firmware MLD API enabled (experimental)");
   iwx_init_extended_cfg_cmd init_cfg{};
   init_cfg.init_flags = htole32(IWX_INIT_NVM);
   _init_complete = false;
@@ -894,6 +1070,7 @@ bool IwxDevice::run_init_sequence(std::string &error) {
     uint32_t flags = 0;
     if (!_integrated) {
       flags = IWX_SOC_CONFIG_CMD_FLAGS_DISCRETE;
+      if (bz() && _card.low_latency_xtal) flags |= IWX_SOC_CONFIG_CMD_FLAGS_LOW_LATENCY;
     } else {
       flags = _card.ltr_delay & IWX_SOC_FLAGS_LTR_APPLY_DELAY_MASK;
       const uint8_t scan_ver = cmd_version(IWX_LONG_GROUP, IWX_SCAN_REQ_UMAC);
@@ -967,17 +1144,19 @@ void IwxDevice::stop() {
       }
       nic_unlock();
     }
-    clrb(IWX_CSR_GP_CNTRL, IWX_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
+    clrb(IWX_CSR_GP_CNTRL,
+         bz() ? IWX_CSR_GP_CNTRL_REG_FLAG_BZ_MAC_ACCESS_REQ : IWX_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
     _nic_locks = 0;
     apm_stop();
-    setb(IWX_CSR_RESET, IWX_CSR_RESET_REG_FLAG_SW_RESET);
-    delay_us(5000);
+    sw_reset();
     mask_interrupts();
     prepare_card_hw();
   }
   _proxy.set_close_ops({});
   _open = false;
-  _phy_added = _mac_added = _binding_added = _sta_added = _queue_enabled = false;
+  _phy_added = _mac_added = _binding_added = _link_added = _link_active = _sta_added = _queue_enabled = false;
+  _sta_link_added = _sta_link_active = false;
+  _use_mld = false;
   _ba_station = _agg_queue_enabled = _agg_active = false;
 }
 
@@ -1003,6 +1182,14 @@ static std::string cmd_name(uint32_t id) {
   case IWX_MAC_CONTEXT_CMD: return " (MAC_CONTEXT)";
   case IWX_BINDING_CONTEXT_CMD: return " (BINDING_CONTEXT)";
   case IWX_TIME_QUOTA_CMD: return " (TIME_QUOTA)";
+  case IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_SESSION_PROTECTION_CMD): return " (SESSION_PROTECTION)";
+  case IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_MAC_CONFIG_CMD): return " (MAC_CONFIG)";
+  case IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_LINK_CONFIG_CMD): return " (LINK_CONFIG)";
+  case IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_STA_CONFIG_CMD): return " (STA_CONFIG)";
+  case IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_STA_REMOVE_CMD): return " (STA_REMOVE)";
+  case IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_RX_BAID_ALLOCATION_CONFIG_CMD): return " (RX_BAID_CFG)";
+  case IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_SCD_QUEUE_CONFIG_CMD): return " (SCD_QUEUE_CONFIG)";
+  case IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_SEC_KEY_CMD): return " (SEC_KEY)";
   default: return "";
   }
 }
@@ -1111,11 +1298,12 @@ int IwxDevice::nvm_get() {
   _lar_enabled = le32toh(rsp->regulatory.lar_enabled) && _fw.has_capa(IWX_UCODE_TLV_CAPA_LAR_SUPPORT);
 
   /* The MAC address strapped by the platform (iwx_set_mac_addr_from_csr). */
-  const uint32_t a0 = rd(IWX_CSR_MAC_ADDR0_STRAP), a1 = rd(IWX_CSR_MAC_ADDR1_STRAP);
+  const uint32_t addr_base = bz() ? IWX_CSR_ADDR_BASE_BZ : IWX_CSR_ADDR_BASE;
+  const uint32_t a0 = rd(addr_base + 8), a1 = rd(addr_base + 12);
   _hw_addr = {uint8_t(a0 >> 24), uint8_t(a0 >> 16), uint8_t(a0 >> 8), uint8_t(a0),
               uint8_t(a1 >> 24), uint8_t(a1 >> 16)};
   if ((_hw_addr[0] & 1) || std::all_of(_hw_addr.begin(), _hw_addr.end(), [](uint8_t b) { return b == 0; })) {
-    const uint32_t b0 = rd(IWX_CSR_MAC_ADDR0_OTP), b1 = rd(IWX_CSR_MAC_ADDR1_OTP);
+    const uint32_t b0 = rd(addr_base), b1 = rd(addr_base + 4);
     _hw_addr = {uint8_t(b0 >> 24), uint8_t(b0 >> 16), uint8_t(b0 >> 8), uint8_t(b0),
                 uint8_t(b1 >> 24), uint8_t(b1 >> 16)};
   }
@@ -1144,21 +1332,41 @@ int IwxDevice::update_mcc(const std::string &alpha2, int source, std::string *go
   const auto *pkt = reinterpret_cast<const iwx_rx_packet *>(resp.data());
   if (pkt->hdr.group_id & IWX_CMD_FAILED_MSK) return EIO;
   const size_t plen = iwx_rx_packet_payload_len(pkt);
-  if (plen < sizeof(iwx_mcc_update_resp)) return EIO;
-  const auto *r = reinterpret_cast<const iwx_mcc_update_resp *>(pkt->data);
-  const uint32_t n = le32toh(r->n_channels);
-  if (plen != sizeof(*r) + n * sizeof(uint32_t)) return EIO;
-  const uint16_t mcc = le16toh(r->mcc);
+  const uint8_t mcc_notif_ver = _fw.notif_version(IWX_LONG_GROUP, IWX_MCC_UPDATE_CMD);
+  const bool v8 = bz() && mcc_notif_ver != IWX_FW_CMD_VER_UNKNOWN && mcc_notif_ver >= 8;
+  uint32_t status = 0, n = 0;
+  uint16_t mcc = 0;
+  uint8_t resp_source = 0;
+  const uint32_t *channels = nullptr;
+  if (v8) {
+    if (plen < sizeof(iwx_mcc_update_resp_v8)) return EIO;
+    const auto *r = reinterpret_cast<const iwx_mcc_update_resp_v8 *>(pkt->data);
+    n = le32toh(r->n_channels);
+    if (plen != sizeof(*r) + n * sizeof(uint32_t)) return EIO;
+    status = le32toh(r->status);
+    mcc = le16toh(r->mcc);
+    resp_source = r->source_id;
+    channels = r->channels;
+  } else {
+    if (plen < sizeof(iwx_mcc_update_resp)) return EIO;
+    const auto *r = reinterpret_cast<const iwx_mcc_update_resp *>(pkt->data);
+    n = le32toh(r->n_channels);
+    if (plen != sizeof(*r) + n * sizeof(uint32_t)) return EIO;
+    status = le32toh(r->status);
+    mcc = le16toh(r->mcc);
+    resp_source = r->source_id;
+    channels = r->channels;
+  }
   const std::string domain{char(mcc >> 8), char(mcc & 0xff)};
   if (got) *got = domain;
   _current_mcc = domain; /* what the firmware holds now, refused or not (current_country) */
   std::string summary = "regulatory: asked " + alpha2 + " (source " + std::to_string(cmd.source_id) +
-                        "), firmware says " + domain + " (source " + std::to_string(r->source_id) +
-                        ", status " + std::to_string(le32toh(r->status)) + "):";
+                        "), firmware says " + domain + " (source " + std::to_string(resp_source) +
+                        ", status " + std::to_string(status) + "):";
   for (uint32_t i = 0; i < n && i < nitems(kNvmChannels); i++) {
     const uint8_t ch = kNvmChannels[i];
     if (ch != 6 && ch != 36 && ch != 44 && ch != 149) continue;
-    const uint32_t flags = le32toh(r->channels[i]);
+    const uint32_t flags = le32toh(channels[i]);
     _chan_flags[ch] = flags;
     summary += " ch" + std::to_string(ch) + "=" +
                (!(flags & IWX_NVM_CHANNEL_VALID) ? "off"
@@ -1200,7 +1408,7 @@ bool IwxDevice::set_promiscuous(bool on) {
   _promisc = on;
   if (!_mac_added) return true;
   if (!nic_lock()) return false;
-  const int err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_MODIFY);
+  const int err = use_mld() ? mld_mac_cmd(IWX_FW_CTXT_ACTION_MODIFY) : mac_ctxt_cmd(IWX_FW_CTXT_ACTION_MODIFY);
   nic_unlock();
   if (err) _log("promiscuous change failed (" + std::to_string(err) + ")");
   return err == 0;
@@ -1208,6 +1416,7 @@ bool IwxDevice::set_promiscuous(bool on) {
 
 bool IwxDevice::add_rx_ba(const uint8_t peer[6], unsigned tid, uint16_t ssn, uint16_t window,
                           uint8_t token) {
+  if (use_mld()) return false;
   if (tid >= 8 || !_mac_added) return false;
   if (!nic_lock()) return false;
   constexpr uint8_t kBaStation = 3; /* ForbiddenItlwm's kAwdlBaStationId */
@@ -1303,6 +1512,7 @@ bool IwxDevice::ensure_ba_station(const uint8_t peer[6]) {
 }
 
 bool IwxDevice::agg_setup(const uint8_t peer[6], bool vht80, bool mimo) {
+  if (use_mld()) return false;
   if (!_aggq.count || !_mac_added) return false;
   if (!nic_lock()) return false;
   bool ok = ensure_ba_station(peer);
@@ -1457,6 +1667,19 @@ void IwxDevice::handle_ba_notif(const uint8_t *payload, size_t len) {
   const auto *r = reinterpret_cast<const iwx_compressed_ba_notif *>(payload);
   const unsigned n = le16toh(r->tfd_cnt);
   if (len < offsetof(iwx_compressed_ba_notif, tfd) + n * sizeof(iwx_compressed_ba_tfd)) return;
+  /* #39/#43: AX210 and AX201 logged "0 Block Acks" for every burst. Say
+   * which queue, station and TID a notification names when none is ours,
+   * so a report tells a queue mismatch from notifications never arriving. */
+  bool ours = false;
+  for (unsigned i = 0; i < n; i++) ours = ours || le16toh(r->tfd[i].q_num) == _aggq.qid;
+  if (!ours && _ba_foreign_logged < 8) {
+    _ba_foreign_logged++;
+    std::string queues;
+    for (unsigned i = 0; i < n && i < 4; i++) queues += (i ? "," : "") + std::to_string(le16toh(r->tfd[i].q_num));
+    _log("Block Ack notice for queue(s) [" + queues + "] (ours " + std::to_string(_aggq.qid) + "), station " +
+         std::to_string(r->sta_id) + ", flags " + hex(le32toh(r->flags)) + ", " + std::to_string(n) +
+         " TFD entries, txed " + std::to_string(le16toh(r->txed)) + ", done " + std::to_string(le16toh(r->done)));
+  }
   for (unsigned i = 0; i < n; i++) {
     const iwx_compressed_ba_tfd &t = r->tfd[i];
     if (le16toh(t.q_num) != _aggq.qid) continue;
@@ -1475,6 +1698,7 @@ void IwxDevice::handle_ba_notif(const uint8_t *payload, size_t len) {
 }
 
 bool IwxDevice::remove_rx_ba(unsigned tid) {
+  if (use_mld()) return true;
   if (tid >= 8 || !((_ba_tids >> tid) & 1)) return true;
   if (!nic_lock()) return false;
   iwx_add_sta_cmd cmd{};
@@ -1544,7 +1768,10 @@ int IwxDevice::phy_cmd(unsigned phy_id, uint8_t channel, unsigned width_mhz, uin
   const uint32_t lmac = (is_2ghz || !_fw.has_capa(IWX_UCODE_TLV_CAPA_CDB_SUPPORT))
                             ? IWX_LMAC_24G_INDEX
                             : IWX_LMAC_5G_INDEX;
-  if (cmd_version(IWX_LONG_GROUP, IWX_PHY_CONTEXT_CMD) == 3) {
+  const uint8_t phy_ver = cmd_version(IWX_LONG_GROUP, IWX_PHY_CONTEXT_CMD);
+  if (phy_ver == 3 || (bz() && phy_ver != IWX_FW_CMD_VER_UNKNOWN && phy_ver >= 3)) {
+    const uint8_t rlc_ver = bz() ? cmd_version(IWX_DATA_PATH_GROUP, IWX_RLC_CONFIG_CMD) : IWX_FW_CMD_VER_UNKNOWN;
+    const bool rlc_separate = bz() && rlc_ver != IWX_FW_CMD_VER_UNKNOWN && rlc_ver >= 2;
     iwx_phy_context_cmd cmd{};
     cmd.id_and_color = htole32(id);
     cmd.action = htole32(action);
@@ -1553,8 +1780,15 @@ int IwxDevice::phy_cmd(unsigned phy_id, uint8_t channel, unsigned width_mhz, uin
     cmd.ci.channel = htole32(channel);
     cmd.ci.width = width;
     cmd.ci.ctrl_pos = pos;
-    cmd.rxchain_info = htole32(rxchain);
-    return send_cmd(IWX_PHY_CONTEXT_CMD, &cmd, sizeof(cmd), false, nullptr);
+    cmd.rxchain_info = htole32(rlc_separate ? 0u : rxchain);
+    int err = send_cmd(IWX_PHY_CONTEXT_CMD, &cmd, sizeof(cmd), false, nullptr);
+    if (!err && bz() && rlc_ver == 2 && action != IWX_FW_CTXT_ACTION_REMOVE) {
+      iwx_rlc_config_cmd rlc{};
+      rlc.phy_id = htole32(phy_id);
+      rlc.rlc.rx_chain_info = htole32(rxchain);
+      err = send_cmd(IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_RLC_CONFIG_CMD), &rlc, sizeof(rlc), false, nullptr);
+    }
+    return err;
   }
   if (_fw.has_capa(IWX_UCODE_TLV_CAPA_ULTRA_HB_CHANNELS)) {
     iwx_phy_context_cmd_uhb cmd{};
@@ -1678,15 +1912,30 @@ int IwxDevice::add_monitor_sta() {
 int IwxDevice::enable_monitor_queue() { return enable_queue(_dataq, IWX_MONITOR_STA_ID, IWX_MGMT_TID); }
 
 int IwxDevice::enable_queue(TxRing &ring, uint8_t sta_id, uint8_t tid) {
-  iwx_tx_queue_cfg_cmd cmd{};
-  cmd.sta_id = sta_id;
-  cmd.tid = tid;
-  cmd.flags = htole16(IWX_TX_QUEUE_CFG_ENABLE_QUEUE);
-  cmd.cb_size = htole32(IWX_TFD_QUEUE_CB_SIZE(ring.count));
-  cmd.byte_cnt_addr = htole64(ring.bc_tbl.pa);
-  cmd.tfdq_addr = htole64(ring.desc.pa);
   std::vector<uint8_t> resp;
-  const int err = send_cmd(IWX_SCD_QUEUE_CFG, &cmd, sizeof(cmd), true, &resp);
+  int err;
+  if (use_mld() && cmd_version(IWX_DATA_PATH_GROUP, IWX_SCD_QUEUE_CONFIG_CMD) == 3) {
+    /* MLD / API 100: SCD_QUEUE_CONFIG_CMD v3 (0x05:0x17) replaces legacy
+     * SCD_QUEUE_CFG; TX_QUEUE_CFG_ENABLE_QUEUE is not valid in v3 flags. */
+    iwx_scd_queue_cfg_cmd cmd{};
+    cmd.operation = htole32(IWX_SCD_QUEUE_ADD);
+    cmd.u.add.sta_mask = htole32(1u << sta_id);
+    cmd.u.add.tid = tid;
+    cmd.u.add.flags = 0;
+    cmd.u.add.cb_size = htole32(IWX_TFD_QUEUE_CB_SIZE(ring.count));
+    cmd.u.add.bc_dram_addr = htole64(ring.bc_tbl.pa);
+    cmd.u.add.tfdq_dram_addr = htole64(ring.desc.pa);
+    err = send_cmd(IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_SCD_QUEUE_CONFIG_CMD), &cmd, sizeof(cmd), true, &resp);
+  } else {
+    iwx_tx_queue_cfg_cmd cmd{};
+    cmd.sta_id = sta_id;
+    cmd.tid = tid;
+    cmd.flags = htole16(IWX_TX_QUEUE_CFG_ENABLE_QUEUE);
+    cmd.cb_size = htole32(IWX_TFD_QUEUE_CB_SIZE(ring.count));
+    cmd.byte_cnt_addr = htole64(ring.bc_tbl.pa);
+    cmd.tfdq_addr = htole64(ring.desc.pa);
+    err = send_cmd(IWX_SCD_QUEUE_CFG, &cmd, sizeof(cmd), true, &resp);
+  }
   if (err) return err;
   const auto *pkt = reinterpret_cast<const iwx_rx_packet *>(resp.data());
   if ((pkt->hdr.group_id & IWX_CMD_FAILED_MSK) ||
@@ -1703,6 +1952,71 @@ int IwxDevice::enable_queue(TxRing &ring, uint8_t sta_id, uint8_t tid) {
   return 0;
 }
 
+int IwxDevice::disable_queue(uint8_t sta_id, uint8_t tid) {
+  if (!use_mld()) return 0;
+  const uint8_t ver = cmd_version(IWX_DATA_PATH_GROUP, IWX_SCD_QUEUE_CONFIG_CMD);
+  if (ver == IWX_FW_CMD_VER_UNKNOWN || ver == 0) return 0;
+  iwx_scd_queue_cfg_cmd cmd{};
+  cmd.operation = htole32(IWX_SCD_QUEUE_REMOVE);
+  cmd.u.remove.sta_mask = htole32(1u << sta_id);
+  cmd.u.remove.tid = htole32(tid);
+  return send_cmd(IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_SCD_QUEUE_CONFIG_CMD), &cmd, sizeof(cmd), false, nullptr);
+}
+
+int IwxDevice::mld_mac_cmd(uint32_t action) {
+  iwx_mac_config_cmd cmd{};
+  cmd.id_and_color = htole32(IWX_FW_CMD_ID_AND_COLOR(0, 0));
+  cmd.action = htole32(action);
+  if (action != IWX_FW_CTXT_ACTION_REMOVE) {
+    cmd.mac_type = htole32(IWX_FW_MAC_TYPE_LISTENER);
+    std::memcpy(cmd.local_mld_addr, _address.data(), 6);
+    cmd.filter_flags = htole32((_promisc ? IWX_MAC_CFG_FILTER_PROMISC : 0u) |
+                               IWX_MAC_CFG_FILTER_ACCEPT_CONTROL_AND_MGMT |
+                               IWX_MAC_CFG_FILTER_ACCEPT_GRP |
+                               IWX_MAC_CFG_FILTER_ACCEPT_BEACON |
+                               IWX_MAC_CFG_FILTER_ACCEPT_PROBE_REQ);
+  }
+  return send_cmd(IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_MAC_CONFIG_CMD), &cmd, sizeof(cmd), false, nullptr);
+}
+
+int IwxDevice::mld_link_add() {
+  iwx_link_config_cmd cmd{};
+  cmd.action = htole32(IWX_FW_CTXT_ACTION_ADD);
+  cmd.link_id = htole32(0);
+  cmd.mac_id = htole32(0);
+  cmd.phy_id = htole32(IWX_FW_CTXT_INVALID);
+  std::memcpy(cmd.local_link_addr, _address.data(), 6);
+  cmd.spec_link_id = 0;
+  return send_cmd(IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_LINK_CONFIG_CMD), &cmd, sizeof(cmd), false, nullptr);
+}
+
+int IwxDevice::mld_link_modify(bool active, uint32_t modify_mask) {
+  iwx_link_config_cmd cmd{};
+  cmd.action = htole32(IWX_FW_CTXT_ACTION_MODIFY);
+  cmd.link_id = htole32(0);
+  cmd.mac_id = htole32(0);
+  cmd.phy_id = htole32(0);
+  std::memcpy(cmd.local_link_addr, _address.data(), 6);
+  cmd.modify_mask = htole32(modify_mask);
+  cmd.active = htole32(active ? 1u : 0u);
+  cmd.cck_rates = htole32(_channel <= 14 ? 0x0fu : 0u);
+  cmd.ofdm_rates = htole32(0x15u); /* 6, 12, 24 */
+  cmd.short_slot = htole32(_channel > 14 ? 1u : 0u);
+  return send_cmd(IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_LINK_CONFIG_CMD), &cmd, sizeof(cmd), false, nullptr);
+}
+
+int IwxDevice::mld_add_monitor_sta() {
+  iwx_sta_cfg_cmd_v2 cmd{};
+  cmd.sta_id = htole32(IWX_MONITOR_STA_ID);
+  cmd.link_id = htole32(0);
+  cmd.station_type = htole32(IWX_STATION_TYPE_BCAST_MGMT);
+  if (_fw.has_capa(IWX_UCODE_TLV_CAPA_STA_EXP_MFP_SUPPORT)) cmd.mfp = htole32(1);
+  const uint8_t ver = cmd_version(IWX_MAC_CONF_GROUP, IWX_STA_CONFIG_CMD);
+  const size_t sz =
+      (ver != IWX_FW_CMD_VER_UNKNOWN && ver > 1) ? sizeof(iwx_sta_cfg_cmd_v2) : sizeof(iwx_sta_cfg_cmd_v1);
+  return send_cmd(IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_STA_CONFIG_CMD), &cmd, sz, false, nullptr);
+}
+
 bool IwxDevice::start_monitor(uint8_t channel, unsigned width_mhz, const uint8_t address[6]) {
   _channel = channel;
   _width = width_mhz;
@@ -1711,32 +2025,65 @@ bool IwxDevice::start_monitor(uint8_t channel, unsigned width_mhz, const uint8_t
   int err = phy_ctxt_cmd(IWX_FW_CTXT_ACTION_ADD);
   if (err) _log("PHY context add failed (" + std::to_string(err) + ")");
   else _phy_added = true;
-  if (!err) {
-    err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_ADD);
-    if (err) _log("MAC context add failed (" + std::to_string(err) + ")");
-    else _mac_added = true;
-  }
-  if (!err) {
-    err = binding_cmd(IWX_FW_CTXT_ACTION_ADD);
-    if (err) _log("binding failed (" + std::to_string(err) + ")");
-    else _binding_added = true;
-  }
-  if (!err) {
-    err = add_monitor_sta();
-    if (err) _log("monitor station add failed (" + std::to_string(err) + ")");
-    else _sta_added = true;
-  }
-  if (!err) {
-    err = enable_monitor_queue();
-    if (err) _log("transmit queue setup failed (" + std::to_string(err) + ")");
-    else _queue_enabled = true;
-  }
-  /* The rest of iwx_run for a monitor: the MAC context again, now "running",
-   * smart FIFO fully on, every multicast let through, no MAC power save, and
-   * the whole air time for this binding where the firmware wants quotas. */
-  if (!err) {
-    err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_MODIFY);
-    if (err) _log("MAC context modify failed (" + std::to_string(err) + ")");
+  if (use_mld()) {
+    if (!err) {
+      err = mld_mac_cmd(IWX_FW_CTXT_ACTION_ADD);
+      if (err) _log("MLD MAC config add failed (" + std::to_string(err) + ")");
+      else _mac_added = true;
+    }
+    if (!err) {
+      err = mld_link_add();
+      if (err) _log("MLD link add failed (" + std::to_string(err) + ")");
+      else _link_added = true;
+    }
+    if (!err) {
+      /* Bind link 0 to PHY 0 while inactive, then activate with basic rates. */
+      err = mld_link_modify(false, 0);
+      if (err) _log("MLD link PHY bind failed (" + std::to_string(err) + ")");
+    }
+    if (!err) {
+      err = mld_link_modify(true, IWX_LINK_CONTEXT_MODIFY_ACTIVE | IWX_LINK_CONTEXT_MODIFY_RATES_INFO);
+      if (err) _log("MLD link activate failed (" + std::to_string(err) + ")");
+      else _link_active = true;
+    }
+    if (!err) {
+      err = mld_add_monitor_sta();
+      if (err) _log("MLD monitor station add failed (" + std::to_string(err) + ")");
+      else _sta_added = true;
+    }
+    if (!err) {
+      err = enable_monitor_queue();
+      if (err) _log("transmit queue setup failed (" + std::to_string(err) + ")");
+      else _queue_enabled = true;
+    }
+  } else {
+    if (!err) {
+      err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_ADD);
+      if (err) _log("MAC context add failed (" + std::to_string(err) + ")");
+      else _mac_added = true;
+    }
+    if (!err) {
+      err = binding_cmd(IWX_FW_CTXT_ACTION_ADD);
+      if (err) _log("binding failed (" + std::to_string(err) + ")");
+      else _binding_added = true;
+    }
+    if (!err) {
+      err = add_monitor_sta();
+      if (err) _log("monitor station add failed (" + std::to_string(err) + ")");
+      else _sta_added = true;
+    }
+    if (!err) {
+      err = enable_monitor_queue();
+      if (err) _log("transmit queue setup failed (" + std::to_string(err) + ")");
+      else _queue_enabled = true;
+    }
+    /* The rest of iwx_run for a monitor: the MAC context again, now "running",
+     * smart FIFO fully on, every multicast let through, no MAC power save, and
+     * the whole air time for this binding where the firmware wants quotas. */
+    if (!err) {
+      err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_MODIFY);
+      if (err) _log("MAC context modify failed (" + std::to_string(err) + ")");
+    }
   }
   if (!err) {
     iwx_sf_cfg_cmd sf{};
@@ -1822,7 +2169,19 @@ bool IwxDevice::set_address(const uint8_t address[6]) {
   std::memcpy(_address.data(), address, 6);
   if (!_mac_added) return true;
   if (!nic_lock()) return false;
-  const int err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_MODIFY);
+  int err = 0;
+  if (use_mld()) {
+    err = mld_mac_cmd(IWX_FW_CTXT_ACTION_MODIFY);
+    if (!err && _link_added) {
+      /* Linux mac-cfg.h: local_link_addr can only change while the link is inactive. */
+      if (_link_active) err = mld_link_modify(false, IWX_LINK_CONTEXT_MODIFY_ACTIVE);
+      if (!err) err = mld_link_modify(false, 0);
+      if (!err && _link_active)
+        err = mld_link_modify(true, IWX_LINK_CONTEXT_MODIFY_ACTIVE | IWX_LINK_CONTEXT_MODIFY_RATES_INFO);
+    }
+  } else {
+    err = mac_ctxt_cmd(IWX_FW_CTXT_ACTION_MODIFY);
+  }
   nic_unlock();
   if (err) _log("address change failed (" + std::to_string(err) + ")");
   return err == 0;
@@ -2011,7 +2370,7 @@ int IwxDevice::poll() {
     /* The card wants the free index in multiples of 8 (iwx_notif_intr). */
     const unsigned frontier = _rx_inflight.empty() ? _rx_cur : _rx_inflight.front();
     const unsigned w = frontier == 0 ? IWX_RX_MQ_RING_COUNT - 1 : frontier - 1u;
-    wr(IWX_RFH_Q0_FRBDCB_WIDX_TRG, w & ~7u);
+    ring_rx_doorbell(w & ~7u);
   }
   return handled;
 }
@@ -2133,6 +2492,15 @@ void IwxDevice::handle_packet(const uint8_t *raw, size_t len) {
     break;
   }
   default:
+    /* #39/#43: a notification nothing here handles, once per ID, so a
+     * Block Ack notification arriving under another group shows up. */
+    if ((qid & 0x80) && _unhandled_notifs.size() < 32) {
+      const uint32_t wide = IWX_WIDE_ID(pkt->hdr.group_id, pkt->hdr.cmd);
+      if (std::find(_unhandled_notifs.begin(), _unhandled_notifs.end(), wide) == _unhandled_notifs.end()) {
+        _unhandled_notifs.push_back(wide);
+        _log("notification " + hex(wide) + " (" + std::to_string(plen) + " bytes) not handled");
+      }
+    }
     break;
   }
 
@@ -2323,8 +2691,13 @@ void IwxDevice::check_health() {
     _fw_error = true;
     return;
   }
-  if (!(cause & (IWX_CSR_INT_BIT_SW_ERR | IWX_CSR_INT_BIT_HW_ERR))) return;
-  _log("firmware/DMA error: CSR_INT " + hex(cause) + ", FH_INT_STATUS " +
+  const uint32_t hw_cause = bz() ? rd(IWX_CSR_MSIX_HW_INT_CAUSES_AD) : 0u;
+  const bool csr_err = (cause & (IWX_CSR_INT_BIT_SW_ERR | IWX_CSR_INT_BIT_HW_ERR)) != 0;
+  const bool msix_err = bz() && hw_cause != 0xffffffffu &&
+                        (hw_cause & (IWX_MSIX_HW_INT_CAUSES_REG_SW_ERR_BZ | IWX_MSIX_HW_INT_CAUSES_REG_HW_ERR)) != 0;
+  if (!csr_err && !msix_err) return;
+  _log("firmware/DMA error: CSR_INT " + hex(cause) +
+       (bz() ? ", MSIX_HW_CAUSES " + hex(hw_cause) : "") + ", FH_INT_STATUS " +
        hex(rd(IWX_CSR_FH_INT_STATUS)));
   _fw_error = true;
   dump_error_tables();
@@ -2346,7 +2719,8 @@ void IwxDevice::dump_error_tables() {
                   h.slot, h.len, h.hdrlen, h.fc0, h.fc1, h.a1, h.rnf);
     _log(b);
   }
-  if (_lmac_error_table >= 0x400000) {
+  const uint32_t min_tbl = bz() ? 0xD0000u : 0x400000u;
+  if (_lmac_error_table >= min_tbl) {
     uint32_t t[38] = {};
     if (read_mem(_lmac_error_table, t, 38) && t[0]) {
       _log("LMAC error " + hex(t[1]) + " " + error_name(t[1]) + ": blink2 " + hex(t[4]) +
@@ -2357,7 +2731,7 @@ void IwxDevice::dump_error_tables() {
       _log("LMAC error log empty or unreadable (at " + hex(_lmac_error_table) + ")");
     }
   }
-  if (_umac_error_table >= 0x400000) {
+  if (_umac_error_table >= min_tbl) {
     uint32_t t[15] = {};
     if (read_mem(_umac_error_table, t, 15) && t[0]) {
       _log("UMAC error " + hex(t[1]) + " " + error_name(t[1]) + ": blink1 " + hex(t[2]) +

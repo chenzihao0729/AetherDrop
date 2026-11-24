@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Xml.Linq;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>
 /// The network Windows is connected to, read through the WLAN API before the
@@ -85,7 +85,7 @@ public static class Wlan
                     or System.Net.NetworkInformation.NetworkInterfaceType.GigabitEthernet
                     or System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetT
                     or System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetFx &&
-                n.Name != "nekodrop" &&
+                n.Name != "AetherDrop" &&
                 !NotWired.Any(d => n.Description.Contains(d, StringComparison.OrdinalIgnoreCase)) &&
                 n.GetIPProperties().GatewayAddresses.Any(g =>
                     g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
@@ -99,7 +99,7 @@ public static class Wlan
     public sealed record SavedProfile(string Ssid, string? Passphrase, string? PskHex, bool Open);
 
     /// <summary>
-    /// Every saved Wi-Fi profile Windows has that nekodrop's station can use
+    /// Every saved Wi-Fi profile Windows has that AetherDrop's station can use
     /// (open or personal WPA/WPA2/WPA3 with a readable key), as SYSTEM.
     /// </summary>
     public static List<SavedProfile> SavedProfiles()
@@ -259,8 +259,8 @@ public static class Wlan
         var path = Path.Combine(dir, "sta.conf");
         ServiceConfig.RejectReparsePoint(path);
         var lines = new List<string> { $"ssid={n.Ssid}", $"bssid={n.Bssid}", $"channel={n.Channel}" };
-        // nekodrop's own TAP adapter (installer: DHCP on), never another VPN's.
-        lines.Add("tap=nekodrop");
+        // AetherDrop's own TAP adapter (installer: DHCP on), never another VPN's.
+        lines.Add("tap=AetherDrop");
         if (n.Open) lines.Add("open=1");
         else if (n.PskHex is not null) lines.Add($"psk={n.PskHex}");
         else lines.Add($"passphrase={n.Passphrase}");

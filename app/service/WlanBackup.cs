@@ -3,16 +3,16 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>
 /// Keeps Windows' saved Wi-Fi networks across the card changing hands.
-/// Windows files them per WLAN interface; while nekodrop holds the card there
+/// Windows files them per WLAN interface; while AetherDrop holds the card there
 /// is none, and when Intel's driver comes back the interface can get a new
 /// GUID, which leaves every saved network behind under the old one.
 ///
 /// Before the card is taken, the all-user profiles are copied to
-/// %ProgramData%\nekodrop\wlan-backup (SYSTEM and Administrators only). Keys
+/// %ProgramData%\AetherDrop\wlan-backup (SYSTEM and Administrators only). Keys
 /// stay as Windows keeps them (protected=true, encrypted for this machine):
 /// the backup is no easier to read than Windows' own store. Once Intel's
 /// interface is back, every backed-up profile it does not have is added
@@ -146,7 +146,7 @@ public static class WlanBackup
             }
         // Profiles stranded under an interface that is no longer there (lost
         // before this backup existed, or by a card re-detected outside
-        // nekodrop). Each such folder is taken in once, so a network the user
+        // AetherDrop). Each such folder is taken in once, so a network the user
         // deletes afterwards stays deleted.
         var present = Interfaces(h);
         var done = LoadDone();

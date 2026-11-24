@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>Windows refused to bind a driver to the card (with its error code).</summary>
 public sealed class CardBindException(string message, Exception inner) : Exception(message, inner);
@@ -84,7 +84,7 @@ public static class Card
 
     /// <summary>
     /// PCI network controllers (class Net, the proxy's class, or no driver at
-    /// all) from vendors with a nekodrop backend, for Settings' card list.
+    /// all) from vendors with a AetherDrop backend, for Settings' card list.
     /// </summary>
     public static IReadOnlyList<Candidate> Candidates()
     {
@@ -118,7 +118,7 @@ public static class Card
         string.Equals(card.Service, card.Profile.ProxyService, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Bound to nekodrop's proxy, running or not. The INF name says nothing
+    /// Bound to AetherDrop's proxy, running or not. The INF name says nothing
     /// (Windows renames it oemNN.inf), so the proxy INF's Provider tells it
     /// apart: a proxy that failed to start was taken for the vendor's driver
     /// and recorded as the one to give the card back to (issue #12).
@@ -127,12 +127,12 @@ public static class Card
         TakenByProxy(card) || string.Equals(card.Provider, card.Profile.ProxyProvider, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The card is bound to nekodrop-wlan.sys: Windows' Wi-Fi and AWDL on one
+    /// The card is bound to AetherDrop-wlan.sys: Windows' Wi-Fi and AWDL on one
     /// driver. Only for cards that driver supports (all the Intel ones).
     /// </summary>
     public static bool ByKernelDriver(Info card) =>
         card.Profile.Capabilities.SupportsKernelDriver &&
-        string.Equals(card.Service, "nekodrop-wlan", StringComparison.OrdinalIgnoreCase);
+        string.Equals(card.Service, "AetherDrop-wlan", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Binds `inf` to the card, whatever ranks higher.</summary>
     /// <summary>

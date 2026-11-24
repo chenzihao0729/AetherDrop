@@ -1,6 +1,6 @@
 # Runs winawdl's own AirDrop engine tests on Windows twice: on the engine as
 # pinned, and on the engine after scripts/patch-engine.py. A test that passes
-# on the first and fails on the second is a regression nekodrop's patches made.
+# on the first and fails on the second is a regression AetherDrop's patches made.
 name: engine-test
 on:
   workflow_dispatch:

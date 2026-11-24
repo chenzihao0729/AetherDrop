@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * \\.\NekodropAwdl: the AWDL engine's access to the listener (MAC 0) while
+ * \\.\AetherDropAwdl: the AWDL engine's access to the listener (MAC 0) while
  * Windows uses the station. A control device (SYSTEM and Administrators
  * only) rather than the NetAdapter's own device, so its I/O never mixes with
  * NDIS. Requests run on the worker thread like everything else that touches
@@ -11,7 +11,7 @@
 #include "precomp.h"
 
 #include <wdmsec.h>
-#include "nekoioctl.h"
+#include "aetherdrop_ioctl.h"
 
 struct NEKO_CTRL {
   NEKO_DEVICE *Dev;

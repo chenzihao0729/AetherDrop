@@ -1,12 +1,12 @@
 # Adding a Wi-Fi card / 适配新网卡
 
-nekodrop runs AirDrop on a card through three layers. Each has a small
+AetherDrop runs AirDrop on a card through three layers. Each has a small
 interface, so a new card family touches each layer once and nothing else.
 
-nekodrop 分三层驱动网卡，每层都有一个小接口。适配一个新的网卡家族时，每层各实现一次即可，其余代码不用动。
+AetherDrop 分三层驱动网卡，每层都有一个小接口。适配一个新的网卡家族时，每层各实现一次即可，其余代码不用动。
 
 ```
-NekoDropService (C#)                     user-mode radio daemon (C++)          kernel
+AetherDropService (C#)                     user-mode radio daemon (C++)          kernel
 ┌──────────────────────────┐   spawn    ┌──────────────────────────┐  IOCTL  ┌────────────────────┐
 │ CardCatalog  (which card)│ ─────────▶ │ radio daemon             │ ──────▶ │ driver/regproxy    │
 │ IRadioBackend (how start)│            │  speaks winawdl's radio  │         │ (UMDF register     │
@@ -20,12 +20,19 @@ same for every card: the daemon speaks winawdl's radio pipe
 
 radio 守护进程之上的部分（awdld、AirDrop 引擎、客户端）对所有网卡都一样：守护进程只需要实现 winawdl 的 radio 管道协议。
 
+The step-by-step process, with the lessons from every port so far, is the skill
+[`.claude/skills/add-wifi-card/SKILL.md`](../.claude/skills/add-wifi-card/SKILL.md)
+(for AI coding agents, and readable by people).
+
+完整的适配步骤和以往每次适配的经验，整理在 skill
+[`.claude/skills/add-wifi-card/SKILL.md`](../.claude/skills/add-wifi-card/SKILL.md) 里（写给 AI 编程助手，人也可以直接读）。
+
 ## Today / 现状
 
 | Backend (`RadioBackendKind`) | Daemon | Cards | Station (Wi-Fi beside AirDrop) |
 |---|---|---|---|
-| `Iwx` | `nekodrop-radio.exe` (`iwxradio/`, ported from ForbiddenItlwm) | Intel 22000 / AX210 families | yes |
-| `Devourer` | `nekodrop-radio-rtl.exe` (winawdl `radio/` on raph559/devourer's Windows PCIe backend) | Realtek RTL8852CE | no: runs on demand |
+| `Iwx` | `AetherDrop-radio.exe` (`iwxradio/`, ported from ForbiddenItlwm) | Intel 22000 / AX210 families | yes |
+| `Devourer` | `AetherDrop-radio-rtl.exe` (winawdl `radio/` on raph559/devourer's Windows PCIe backend) | Realtek RTL8852CE | no: runs on demand |
 
 ## Checklist / 步骤
 
@@ -57,7 +64,7 @@ backend only what its `IRadioBackend.BuildArgs` returns.
   command line from `RadioStart`) and register it in `RadioBackends.All`.
 - `CardCatalog.ManualModels`: add the model so users whose card is not
   recognized by its ID can pick it by hand (Settings > Wi-Fi card).
-- `CardCatalog.SelfTest()` (`NekoDropService --selftest`, run by the build)
+- `CardCatalog.SelfTest()` (`AetherDropService --selftest`, run by the build)
   checks that every profile and model has a registered backend.
 
 在 `CardCatalog.cs` 里给每个 PCI ID 加一条 `AdapterProfile`（能力、厂商驱动名），在 `RadioBackends.cs` 里实现并注册 `IRadioBackend`，再在 `ManualModels` 里加上型号，供自动识别失败的用户手动选择。`--selftest` 会检查每个型号都有对应的后端。

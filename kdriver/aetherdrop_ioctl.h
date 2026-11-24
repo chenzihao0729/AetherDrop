@@ -1,21 +1,21 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * The AWDL interface of nekodrop-wlan.sys, shared by the driver and the
- * user-mode AWDL engine (nekodrop-radio --kernel). The driver owns the card
+ * The AWDL interface of AetherDrop-wlan.sys, shared by the driver and the
+ * user-mode AWDL engine (AetherDrop-radio --kernel). The driver owns the card
  * and serves Windows' Wi-Fi; the engine runs upstream 0.6.0's AWDL policies
  * on the listener (MAC 0) through these calls, as it did on the user-mode
  * hardware layer.
  *
- * Device: \\.\NekodropAwdl (SYSTEM and Administrators only). All IOCTLs are
+ * Device: \\.\AetherDropAwdl (SYSTEM and Administrators only). All IOCTLs are
  * METHOD_BUFFERED. IOCTL_NEKO_READ pends until events are available and
  * returns as many as fit: each a NEKO_EVENT followed by `length` bytes,
  * padded to 4.
  */
 #pragma once
 
-#define NEKO_AWDL_DEVICE_NAME L"\\Device\\NekodropAwdl"
-#define NEKO_AWDL_DOS_NAME L"\\DosDevices\\NekodropAwdl"
-#define NEKO_AWDL_USER_PATH "\\\\.\\NekodropAwdl"
+#define NEKO_AWDL_DEVICE_NAME L"\\Device\\AetherDropAwdl"
+#define NEKO_AWDL_DOS_NAME L"\\DosDevices\\AetherDropAwdl"
+#define NEKO_AWDL_USER_PATH "\\\\.\\AetherDropAwdl"
 
 #define NEKO_IOCTL(n) CTL_CODE(FILE_DEVICE_NETWORK, 0x900 + (n), METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_NEKO_ATTACH NEKO_IOCTL(0)        /* in NEKO_ATTACH, out NEKO_INFO */

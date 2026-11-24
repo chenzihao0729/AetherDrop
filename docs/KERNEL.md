@@ -1,9 +1,9 @@
-# nekodrop kernel driver (WiFiCx)
+# AetherDrop kernel driver (WiFiCx)
 
 Why: with the user-mode radio, Windows loses its Wi-Fi adapter the moment the
 card leaves Intel's driver (no Wi-Fi switch, no network list; internet only
 through a TAP "Ethernet"). Windows lists Wi-Fi only from a WLAN miniport. So
-nekodrop becomes one: a KMDF + NetAdapterCx + **WiFiCx** driver for the AX201
+AetherDrop becomes one: a KMDF + NetAdapterCx + **WiFiCx** driver for the AX201
 that serves Windows' Wi-Fi (scan, connect, WPA2 through WlanSvc, data path) and,
 beside it, the AWDL interface that awdld and the AirDrop engine already use.
 This is ForbiddenItlwm's model on macOS: one driver does both.
@@ -26,7 +26,7 @@ kdriver/
   wdi.cpp         EvtWifiDeviceSendCommand: WDI task/property dispatch (TlvGeneratorParser)
   adapter.cpp     NetAdapter, TX/RX rings <-> firmware queues
   awdl_ioctl.cpp  private interface for awdld (frames, channel, events)
-  nekodrop-wlan.inf
+  AetherDrop-wlan.inf
 ```
 
 ## WDI messages, in order of need
@@ -50,8 +50,8 @@ release needs attestation signing through the Microsoft partner portal.
 
 ## How AirDrop runs on it
 
-`nekodrop-radio --kernel` (started by NekoDropService when the card is bound
-to nekodrop-wlan.sys) opens `\\.\NekodropAwdl` and runs the same AWDL engine
+`AetherDrop-radio --kernel` (started by AetherDropService when the card is bound
+to AetherDrop-wlan.sys) opens `\\.\AetherDropAwdl` and runs the same AWDL engine
 as the user-mode radio: upstream 0.6.0's channel following, country learning,
 receive Block Ack, BA filter, rate ladder and unicast resend all stay in user
 mode; the driver only executes listener primitives (transmit at a rate, TX
@@ -65,11 +65,11 @@ awdld and the AirDrop engine talk to the radio pipe exactly as before.
 2. `scripts\build-kdriver.ps1` (already built: `build\kdriver\package`).
 3. `scripts\kdriver-install.ps1` (administrator): signs the package with a
    certificate made on the PC, adds it to the driver store, binds it to the
-   AX201 (installed copy: `C:\Program Files\nekodrop\kdriver\kdriver-install.ps1`).
-   Log: `%ProgramData%\nekodrop\kdriver-install.log`.
+   AX201 (installed copy: `C:\Program Files\AetherDrop\kdriver\kdriver-install.ps1`).
+   Log: `%ProgramData%\AetherDrop\kdriver-install.log`.
 4. Windows Wi-Fi: the network list should fill; connect to the usual network.
-   Kernel log: DebugView (Capture Kernel) shows lines starting `nekodrop:`.
-5. AirDrop: start NekoDropService (or `nekodrop-radio 6 --kernel` + awdld).
+   Kernel log: DebugView (Capture Kernel) shows lines starting `AetherDrop:`.
+5. AirDrop: start AetherDropService (or `AetherDrop-radio 6 --kernel` + awdld).
 6. Undo at any point: `scripts\kdriver-restore.ps1` gives the card back to
    Intel's driver and removes the package.
 

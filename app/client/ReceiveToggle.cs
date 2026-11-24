@@ -4,13 +4,14 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>Retains the native CheckBox input/accessibility behavior with a sliding thumb.</summary>
 internal sealed class ReceiveToggle : CheckBox
 {
     static Color Off => Palette.Color(191, 197, 201);
     static Color On => Palette.Color(0, 122, 255);
+    public void RefreshAppearance() => UpdateState(false);
     Border? _track, _knob;
     TranslateTransform? _offset;
     SolidColorBrush? _fill;

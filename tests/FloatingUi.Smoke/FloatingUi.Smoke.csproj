@@ -9,6 +9,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../app/client/NekoDrop.csproj" />
+    <ProjectReference Include="../../app/client/AetherDrop.csproj" />
   </ItemGroup>
 </Project>

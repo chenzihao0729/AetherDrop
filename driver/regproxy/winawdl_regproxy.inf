@@ -1,10 +1,12 @@
 ; SPDX-License-Identifier: MIT
-; User-mode register proxy for the Wi-Fi cards nekodrop's radios drive:
-; Intel AX201 and 9560-class on Qu/QuZ, AX200, and the AX210 family
-; (AX210/AX211/AX411), plus Realtek RTL8852CE (10EC:C852).
+; User-mode register proxy for the Wi-Fi cards AetherDrop's radios drive:
+; Intel AX201 and 9560-class on Qu/QuZ, AX200, the AX210 family
+; (AX210/AX211/AX411), Intel BE200 (8086:272B, experimental), Realtek
+; RTL8852CE (10EC:C852), and MediaTek MT7902 / MT7921 / MT7922
+; (14C3:7902, 0616, 7922, 7961, 0608).
 ; Adapted from winawdl's RTL8852CE proxy. Matches only the generic device IDs
 ; (no SUBSYS), which rank below the vendors' own drivers, so adding it takes
-; over nothing: NekoDropService (or scripts\take-card.ps1) binds it explicitly.
+; over nothing: AetherDropService (or scripts\take-card.ps1) binds it explicitly.
 
 [Version]
 Signature   = "$Windows NT$"
@@ -41,7 +43,13 @@ HKR,,Icon,,"-5"
 %DeviceDesc% = RegProxy, PCI\VEN_8086&DEV_51F1
 %DeviceDesc% = RegProxy, PCI\VEN_8086&DEV_54F0
 %DeviceDesc% = RegProxy, PCI\VEN_8086&DEV_7F70
+%DeviceDesc% = RegProxy, PCI\VEN_8086&DEV_272B
 %DeviceDescRtl% = RegProxy, PCI\VEN_10EC&DEV_C852
+%DeviceDescMtk% = RegProxy, PCI\VEN_14C3&DEV_7902
+%DeviceDescMtk792x% = RegProxy, PCI\VEN_14C3&DEV_0616
+%DeviceDescMtk792x% = RegProxy, PCI\VEN_14C3&DEV_7922
+%DeviceDescMtk792x% = RegProxy, PCI\VEN_14C3&DEV_7961
+%DeviceDescMtk792x% = RegProxy, PCI\VEN_14C3&DEV_0608
 
 [SourceDisksNames]
 1 = %DiskName%
@@ -96,7 +104,9 @@ ServiceBinary      = %13%\winawdl_regproxy.dll
 [Strings]
 Provider   = "winairdrop project"
 ClassName  = "winawdl user-space radios"
-DeviceDesc = "Intel Wi-Fi user-space register proxy (nekodrop)"
-DeviceDescRtl = "Realtek RTL8852CE user-space register proxy (nekodrop)"
+DeviceDesc = "Intel Wi-Fi user-space register proxy (AetherDrop)"
+DeviceDescRtl = "Realtek RTL8852CE user-space register proxy (AetherDrop)"
+DeviceDescMtk = "MediaTek MT7902 user-space register proxy (AetherDrop)"
+DeviceDescMtk792x = "MediaTek MT7921/MT7922 user-space register proxy (AetherDrop)"
 DiskName   = "winawdl register proxy"
 WudfRdDisplayName = "Windows Driver Foundation - User-mode Driver Framework Reflector"

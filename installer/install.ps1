@@ -1,12 +1,12 @@
-# Installs nekodrop from the staged folder it sits in. Changes, in order:
-#   1. copies the files to %ProgramFiles%\nekodrop
+﻿# Installs AetherDrop from the staged folder it sits in. Changes, in order:
+#   1. copies the files to %ProgramFiles%\AetherDrop
 #   2. makes a code-signing certificate on this PC, trusts it, signs the
 #      register-proxy driver with it and deletes its private key (nothing else
 #      can ever be signed with what this PC now trusts); adds the driver to the
 #      driver store, which takes over nothing by itself
 #   3. installs TAP-Windows if no tap0901 adapter exists (concurrent mode)
 #   4. two inbound firewall rules, link-local addresses only
-#   5. the NekoDropService service, started
+#   5. the AetherDropService service, started
 # The Wi-Fi card is only taken by the service, and given back on uninstall.
 # -DryRun says what would happen and changes nothing.
 # -SelfTest checks the card classification and the refusal message below
@@ -19,9 +19,21 @@
 # before anything is written.
 param([switch]$DryRun, [string]$Target = "$env:ProgramFiles\AetherDrop", [switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
+# Inno Setup and Explorer can be 32-bit even on Windows x64. Driver/network
+# management must run in the native host, before any installation side effects.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+  $nativeHost = Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+  $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Target', $Target)
+  if ($DryRun) { $arguments += '-DryRun' }
+  if ($SelfTest) { $arguments += '-SelfTest' }
+  & $nativeHost @arguments
+  exit $LASTEXITCODE
+}
+$PnpUtil = Join-Path $env:SystemRoot 'System32\pnputil.exe'
+$ServiceControl = Join-Path $env:SystemRoot 'System32\sc.exe'
 
 # ------------------------------------------------ Wi-Fi card classification
-# Without a supported card the setup said only "no Intel Wi-Fi card nekodrop
+# Without a supported card the setup said only "no Intel Wi-Fi card AetherDrop
 # supports", so an RTL8852CE owner did not learn that winawdl runs their card,
 # and nobody learned which ID to post (docs/HARDWARE.md, step 4). The setup
 # runs this script from its own temporary folder, alone: the tables below match
@@ -41,16 +53,19 @@ $WifiChips = @{
   '8086:2726' = @('intel-fw', 'Intel SnJ')
   '8086:2729' = @('intel-fw', 'Intel Ma (Meteor Lake CNVi)')
   '8086:7E40' = @('intel-fw', 'Intel Ma (Meteor Lake CNVi)')
-  # Intel Wi-Fi 7 (Linux iwlwifi's Bz/Gl/Sc device IDs): no upstream driver.
-  '8086:272B' = @('intel-be', 'Intel BE200 (Wi-Fi 7)')
+  # Intel Wi-Fi 7 (Linux iwlwifi's Bz/Gl/Sc device IDs): BE200 is experimental
+  # (Concurrent and on-demand); CNVi Wi-Fi 7 cards have no driver yet.
+  '8086:272B' = @('intel-be-exp', 'Intel BE200 (Wi-Fi 7)')
   '8086:A840' = @('intel-be', 'Intel BE201/BE211 (Wi-Fi 7, CNVi)')
   '8086:7740' = @('intel-be', 'Intel BE201/BE211 (Wi-Fi 7, CNVi)')
   '8086:E440' = @('intel-be', 'Intel Wi-Fi 7 (CNVi)')
   '8086:E340' = @('intel-be', 'Intel Wi-Fi 7 (CNVi)')
   '8086:D340' = @('intel-be', 'Intel Wi-Fi 7 (CNVi)')
   # Realtek (Linux rtw88/rtw89 device IDs). RTL8852CE is natively supported
-  # via nekodrop's built-in devourer backend (on-demand AirDrop).
+  # via AetherDrop's built-in devourer backend (on-demand AirDrop).
   '10EC:C852' = @('supported-rtl', 'Realtek RTL8852CE')
+  # MediaTek MT7902: built-in mt76 port (AetherDrop-radio-mt.exe, 5 GHz Wi-Fi beside AirDrop or on-demand).
+  '14C3:7902' = @('supported-mtk', 'MediaTek MT7902')
   '10EC:8852' = @('rtl', 'Realtek RTL8852AE')
   '10EC:A85A' = @('rtl', 'Realtek RTL8852AE')
   '10EC:B852' = @('rtl', 'Realtek RTL8852BE')
@@ -63,14 +78,13 @@ $WifiChips = @{
   '10EC:D723' = @('rtl', 'Realtek RTL8723DE')
   '10EC:B723' = @('rtl', 'Realtek RTL8723BE')
   # MediaTek, also sold as AMD RZ6xx/RZ7xx (Linux mt76).
-  '14C3:7961' = @('mtk', 'MediaTek MT7921')
-  '14C3:0608' = @('mtk', 'MediaTek MT7921 (AMD RZ608)')
-  '14C3:7922' = @('mtk', 'MediaTek MT7922')
-  '14C3:0616' = @('mtk', 'MediaTek MT7922 (AMD RZ616)')
+  '14C3:7961' = @('supported-mtk', 'MediaTek MT7921')
+  '14C3:0608' = @('supported-mtk', 'MediaTek MT7921 (AMD RZ608)')
+  '14C3:7922' = @('supported-mtk', 'MediaTek MT7922')
+  '14C3:0616' = @('supported-mtk', 'MediaTek MT7922 (AMD RZ616)')
   '14C3:7925' = @('mtk', 'MediaTek MT7925')
   '14C3:0717' = @('mtk', 'MediaTek MT7925 (AMD RZ717)')
   '14C3:7927' = @('mtk', 'MediaTek MT7927 (Wi-Fi 7)')
-  '14C3:7902' = @('mtk', 'MediaTek MT7902')
   '14C3:7663' = @('mtk', 'MediaTek MT7663')
   '14C3:7615' = @('mtk', 'MediaTek MT7615')
   # Qualcomm (Linux ath11k/ath12k) and Qualcomm Atheros (ath10k/ath9k).
@@ -95,12 +109,14 @@ $WifiChips = @{
 # kind -> what the report says, and a hint for the reader (may be empty).
 $WifiKinds = @{
   'supported'     = @('supported by AetherDrop', '')
+  'supported-mtk' = @('supported by AetherDrop (5 GHz Wi-Fi beside AirDrop, or on-demand; built-in MediaTek backend)', 'Joins 5 GHz Wi-Fi beside AirDrop, or runs on demand while Windows keeps Wi-Fi.')
   'supported-rtl' = @('supported by AetherDrop (on-demand AirDrop, built-in RTL8852CE backend)', 'Windows keeps Wi-Fi normally; AetherDrop takes the card only during AirDrop transfers.')
   'intel-fw'      = @('not supported: its firmware is not shipped upstream', 'AetherDrop runs the Intel cards whose firmware ForbiddenItlwm ships (API 68); this one has none there.')
+  'intel-be-exp'  = @('supported by AetherDrop (experimental, Concurrent Wi-Fi beside AirDrop or on-demand, not yet run on a real card)', 'Joins Wi-Fi beside AirDrop or runs on demand while Windows keeps Wi-Fi. Please post a diagnostic report in an issue whether it works or not.')
   'intel-be'      = @('not supported: Intel Wi-Fi 7, no upstream driver', 'ForbiddenItlwm, which AetherDrop ports, has no driver for Wi-Fi 7 cards yet.')
   'intel-other'   = @('not supported: an Intel device ID AetherDrop does not know', 'Please post this report in an issue: if upstream ships firmware for this card, its ID can be added.')
   'rtl'           = @('not supported: Realtek', 'Among Realtek chips, AetherDrop currently has built-in support for RTL8852CE (10EC:C852) only.')
-  'mtk'           = @('not supported: MediaTek', 'No user-mode Windows driver exists for MediaTek Wi-Fi yet.')
+  'mtk'           = @('not supported: MediaTek', 'Among MediaTek chips, AetherDrop currently has built-in support for MT7902, MT7921 (RZ608), and MT7922 (RZ616) only.')
   'qcom'          = @('not supported: Qualcomm', 'No user-mode Windows driver exists for Qualcomm Wi-Fi yet.')
   'bcm'           = @('not supported: Broadcom', 'There is no open Windows driver path for Broadcom Wi-Fi.')
   'usb'           = @('not supported: USB adapter', 'AetherDrop drives PCIe cards only.')
@@ -146,12 +162,12 @@ function Test-KnownWifiId([string]$InstanceId) {
 
 # ------------------------------------------------------ the refusal message
 # The supported-card check: exact 15 Intel IDs plus Realtek RTL8852CE
-# (10EC:C852), with a 4-hex boundary so a 5-digit device ID (e.g. DEV_43F01 or
-# DEV_C8520) can never match a supported 4-digit ID.
-$SupportedCardPattern = '^PCI\\(?:VEN_8086&DEV_(' + ($SupportedIntelIds -join '|') + ')|VEN_10EC&DEV_C852)(?=&|\\|$)'
-$NoSupportedCard = 'This PC has no Wi-Fi card AetherDrop supports (Intel AX201, AX200, AX210, AX211, AX411, 9560 on Qu, or Realtek RTL8852CE 10EC:C852); AetherDrop cannot run here.'
-$ReportUrl = 'https://github.com/zheznanohana/nekodrop/blob/main/installer/report.ps1'
-$IssuesUrl = 'https://github.com/zheznanohana/nekodrop/issues'
+# (10EC:C852) and MediaTek MT7902/MT7921/MT7922, with a 4-hex boundary so a
+# 5-digit device ID (e.g. DEV_43F01 or DEV_C8520) can never match.
+$SupportedCardPattern = '^PCI\\(?:VEN_8086&DEV_(' + ($SupportedIntelIds -join '|') + ')|VEN_8086&DEV_272B|VEN_10EC&DEV_C852|VEN_14C3&DEV_(7902|7961|0608|7922|0616))(?=&|\\|$)'
+$NoSupportedCard = 'This PC has no Wi-Fi card AetherDrop supports (Intel AX201, AX200, AX210, AX211, AX411, 9560 on Qu, BE200 (experimental), Realtek RTL8852CE 10EC:C852, or MediaTek MT7902/MT7921/MT7922); AetherDrop cannot run here.'
+$ReportUrl = 'https://github.com/chenzihao0729/AetherDrop/blob/main/installer/report.ps1'
+$IssuesUrl = 'https://github.com/chenzihao0729/AetherDrop/issues'
 # Adapter names that say wireless. As report.ps1: not bare "Killer" (its
 # Ethernet chips E2600/E3100 use it too). The CJK words are \u escapes so this
 # file stays ASCII: Windows PowerShell 5.1 reads a file without a BOM in the
@@ -192,7 +208,7 @@ function ConvertTo-AsciiText([string]$Text) {
 }
 
 # The refusal: which wireless cards are there, their IDs without the instance
-# part (a USB adapter's serial is often its MAC address), why nekodrop does not
+# part (a USB adapter's serial is often its MAC address), why AetherDrop does not
 # run on them, winawdl for an RTL8852CE, and how to get a card supported.
 function Format-UnsupportedCardMessage($Devices) {
   $lines = @($NoSupportedCard)
@@ -236,10 +252,16 @@ if ($SelfTest) {
   }
   function Ascii([string]$s) { return ("$s" -cmatch '^[\x09\x0A\x0D\x20-\x7E]*$') }
 
-  # The supported-card check: exact 15 Intel IDs + Realtek RTL8852CE with 4-hex boundary.
-  if ($SupportedCardPattern -ne '^PCI\\(?:VEN_8086&DEV_(43F0|A0F0|02F0|06F0|34F0|3DF0|4DF0|2723|2725|7A70|7AF0|51F0|51F1|54F0|7F70)|VEN_10EC&DEV_C852)(?=&|\\|$)') {
+  # The supported-card check: exact 15 Intel IDs + Realtek RTL8852CE + MediaTek MT7902/MT7921/MT7922 with 4-hex boundary.
+  if ($SupportedCardPattern -ne '^PCI\\(?:VEN_8086&DEV_(43F0|A0F0|02F0|06F0|34F0|3DF0|4DF0|2723|2725|7A70|7AF0|51F0|51F1|54F0|7F70)|VEN_8086&DEV_272B|VEN_10EC&DEV_C852|VEN_14C3&DEV_(7902|7961|0608|7922|0616))(?=&|\\|$)') {
     $fail += "supported-card pattern changed: $SupportedCardPattern"
   }
+  foreach ($mtkDev in '7902', '7961', '0608', '7922', '0616') {
+    if ("PCI\VEN_14C3&DEV_$mtkDev&SUBSYS_60401A3B&REV_00\4&1" -notmatch $SupportedCardPattern) { $fail += "14C3:$mtkDev not accepted" }
+    if ("PCI\VEN_14C3&DEV_$($mtkDev)1&SUBSYS_60401A3B" -match $SupportedCardPattern) { $fail += "5-digit DEV_$($mtkDev)1 matched as MediaTek" }
+    if ((Classify-WifiCard "PCI\VEN_14C3&DEV_$mtkDev&SUBSYS_60401A3B").Kind -ne 'supported-mtk') { $fail += "14C3:$mtkDev not classified as supported-mtk" }
+  }
+  if ('PCI\VEN_14C3&DEV_7925&SUBSYS_792514C3' -match $SupportedCardPattern) { $fail += '14C3:7925 accepted as supported' }
   foreach ($d in $SupportedIntelIds) {
     if ("PCI\VEN_8086&DEV_$d&SUBSYS_00748086&REV_00\3&11583659&0&A3" -notmatch $SupportedCardPattern) { $fail += "8086:$d not accepted" }
     if ("PCI\VEN_8086&DEV_$d" -notmatch $SupportedCardPattern) { $fail += "8086:$d bare ID not accepted" }
@@ -253,7 +275,7 @@ if ($SelfTest) {
     $rc = Classify-WifiCard $okRtl
     if ($rc.Kind -ne 'supported-rtl' -or $rc.Chip -ne 'Realtek RTL8852CE') { $fail += "$okRtl classified as $($rc.Kind) / $($rc.Chip)" }
   }
-  foreach ($no in 'PCI\VEN_8086&DEV_43F01&SUBSYS_00748086', 'PCI\VEN_8086&DEV_7E40&SUBSYS_00908086', 'PCI\VEN_8086&DEV_272B&SUBSYS_00F48086', 'PCI\VEN_10EC&DEV_C8520&SUBSYS_C85210EC', 'PCI\VEN_10EC&DEV_B852&SUBSYS_B85217AA', 'PCI\VEN_10EC&DEV_8168&SUBSYS_86771043', 'PCI\VEN_8086&DEV_15F3&SUBSYS_00008086') {
+  foreach ($no in 'PCI\VEN_8086&DEV_43F01&SUBSYS_00748086', 'PCI\VEN_8086&DEV_7E40&SUBSYS_00908086', 'PCI\VEN_8086&DEV_272B1&SUBSYS_00F48086', 'PCI\VEN_10EC&DEV_C8520&SUBSYS_C85210EC', 'PCI\VEN_10EC&DEV_B852&SUBSYS_B85217AA', 'PCI\VEN_10EC&DEV_8168&SUBSYS_86771043', 'PCI\VEN_8086&DEV_15F3&SUBSYS_00008086') {
     if ($no -match $SupportedCardPattern) { $fail += "$no accepted as supported" }
   }
   if ((Classify-WifiCard 'PCI\VEN_8086&DEV_43F01&SUBSYS_00748086').Kind -eq 'supported' -or (Test-KnownWifiId 'PCI\VEN_8086&DEV_43F01&SUBSYS_00748086')) {
@@ -281,34 +303,39 @@ if ($SelfTest) {
   }
   if ($msg.Contains('8168') -or $msg.Contains('SUBSYS') -or $msg.Contains('4&1&0')) { $fail += 'RTL8852BE message shows the Ethernet chip or the instance path' }
 
-  # MediaTek RZ616 found by its medium, a USB stick (serial = MAC address) found
+  # MediaTek RZ717 found by its medium, a USB stick (serial = MAC address) found
   # by name, Intel Meteor Lake and BE200, an Intel ID nobody knows, Qualcomm,
   # Broadcom and an unknown vendor's wireless adapter: PCIe first, at most 5.
   $manyPnp = @(
     (Dev 'USB\VID_0BDA&PID_8812\00E04C000001' 'Realtek 8812AU Wireless LAN 802.11ac USB NIC'),
-    (Dev 'PCI\VEN_14C3&DEV_0616&SUBSYS_E0CD1A3B&REV_00\4&1' 'MediaTek Wi-Fi 6E MT7922 (RZ616) 160MHz PCIe Adapter'),
+    (Dev 'PCI\VEN_14C3&DEV_0717&SUBSYS_E0CD1A3B&REV_00\4&1' 'MediaTek Wi-Fi 7 MT7925 (RZ717) 160MHz PCIe Adapter'),
     (Dev 'PCI\VEN_8086&DEV_7E40&SUBSYS_00908086&REV_20\3&1' 'Intel(R) Wi-Fi 6E AX211 160MHz'),
     (Dev 'PCI\VEN_8086&DEV_272B&SUBSYS_00F48086&REV_1A\4&1' 'Intel(R) Wi-Fi 7 BE200 320MHz'),
     (Dev 'PCI\VEN_8086&DEV_1234&SUBSYS_00008086\4&1' 'Intel(R) Wireless Something'),
     (Dev 'PCI\VEN_17CB&DEV_1103&SUBSYS_010817CB\4&1' 'Qualcomm FastConnect 6900 Wi-Fi 6E Dual Band Simultaneous (DBS) WiFi Network Adapter'),
     (Dev 'PCI\VEN_14E4&DEV_43A0&SUBSYS_0000106B\4&1' 'Broadcom 802.11ac Network Adapter')
   )
-  $manyNics = @((Nic 'PCI\VEN_14C3&DEV_0616&SUBSYS_E0CD1A3B&REV_00\4&1' 9))
+  $manyNics = @((Nic 'PCI\VEN_14C3&DEV_0717&SUBSYS_E0CD1A3B&REV_00\4&1' 9))
   $sel = @(Select-WirelessDevices $manyPnp $manyNics)
   if ($sel.Count -ne 5) { $fail += "expected 5 wireless devices, got $($sel.Count)" }
   if (@($sel | Where-Object { $_.InstanceId -match '^USB\\' }).Count) { $fail += 'a USB adapter came before 5 PCIe cards' }
   $all = @(Select-WirelessDevices ($manyPnp | Select-Object -First 3) @())
   if ($all.Count -ne 3 -or $all[-1].InstanceId -notmatch '^USB\\') { $fail += 'the USB adapter is not listed after the PCIe cards' }
   $msg = Format-UnsupportedCardMessage $all
-  foreach ($want in 'USB\VID_0BDA&PID_8812', 'not supported: USB adapter', 'MediaTek MT7922 (AMD RZ616)', 'not supported: MediaTek', 'Intel Ma (Meteor Lake CNVi)', 'firmware is not shipped upstream') {
+  foreach ($want in 'USB\VID_0BDA&PID_8812', 'not supported: USB adapter', 'MediaTek MT7925 (AMD RZ717)', 'not supported: MediaTek', 'Intel Ma (Meteor Lake CNVi)', 'firmware is not shipped upstream') {
     if (-not $msg.Contains($want)) { $fail += "message lacks '$want'" }
   }
   if ($msg.Contains('00E04C000001')) { $fail += 'message shows the USB serial number' }
   if ($msg.Contains('winawdl')) { $fail += 'winawdl offered for a card it does not drive' }
   $msg = Format-UnsupportedCardMessage ($manyPnp | Select-Object -Skip 3)
-  foreach ($want in 'Intel BE200 (Wi-Fi 7)', 'an Intel device ID AetherDrop does not know', 'Qualcomm WCN6855', 'Broadcom BCM4360') {
+  foreach ($want in 'Intel BE200 (Wi-Fi 7)', 'supported by AetherDrop (experimental, Concurrent Wi-Fi beside AirDrop or on-demand', 'an Intel device ID AetherDrop does not know', 'Qualcomm WCN6855', 'Broadcom BCM4360') {
     if (-not $msg.Contains($want)) { $fail += "message lacks '$want'" }
   }
+  if ((Classify-WifiCard 'PCI\VEN_8086&DEV_272B&SUBSYS_00F48086').Kind -ne 'intel-be-exp') {
+    $fail += '8086:272B not classified as intel-be-exp'
+  }
+  # BE200 is taken like the other cards (experimental), with the 4-hex boundary.
+  if ('PCI\VEN_8086&DEV_272B&SUBSYS_00F48086&REV_1A\4&1' -notmatch $SupportedCardPattern) { $fail += '8086:272B not accepted' }
   $odd = @(Select-WirelessDevices @((Dev 'PCI\VEN_1AE0&DEV_1234&SUBSYS_00001AE0\4&1' 'Contoso Wireless-AC 9000')) @())
   if ($odd.Count -ne 1 -or -not (Format-UnsupportedCardMessage $odd).Contains('unrecognized wireless adapter')) { $fail += 'unknown vendor wireless adapter not reported' }
 
@@ -403,7 +430,7 @@ if (-not $isAdmin) {
 $Source = $PSScriptRoot
 # The setup runs this hidden: keep a log, and say what failed through the exit
 # code and install-error.txt, which the setup shows.
-$LogDir = Join-Path $env:ProgramData 'nekodrop'
+$LogDir = Join-Path $env:ProgramData 'AetherDrop'
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 if ((Get-Item -LiteralPath $LogDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
   throw "Refusing reparse point: $LogDir"
@@ -416,10 +443,10 @@ trap {
   if (-not $DryRun) { Stop-Transcript | Out-Null }
   exit 1
 }
-$CertSubject = 'CN=nekodrop driver (signed on this PC)'
+$CertSubject = 'CN=AetherDrop driver (signed on this PC)'
 $TrustStores = 'Root', 'TrustedPublisher'
-$FirewallGroup = 'nekodrop AirDrop'
-$Service = 'NekoDropService'
+$FirewallGroup = 'AetherDrop AirDrop'
+$Service = 'AetherDropService'
 
 function Step($what, [scriptblock]$do) {
   "  $what"
@@ -447,11 +474,11 @@ if (-not ($pnpAll | Where-Object { $_.InstanceId -match $SupportedCardPattern })
 # below failed with an IOException on that file and left a half-copied folder (#22).
 function Stop-FromTarget {
   $root = [IO.Path]::GetFullPath($Target).TrimEnd('\') + '\'
-  # Never by path under a drive root or a folder that is not nekodrop's.
-  $byPath = $root.Length -gt 4 -and ((Test-Path (Join-Path $root 'NekoDropService.exe')) -or (Test-Path (Join-Path $root 'python\python.exe')))
-  $ours = @(Get-Process AetherDrop, nekodrop, nekodrop-radio, nekodrop-radio-rtl, awdld, NekoDropService -ErrorAction SilentlyContinue) +
+  # Never by path under a drive root or a folder that is not AetherDrop's.
+  $byPath = $root.Length -gt 4 -and ((Test-Path (Join-Path $root 'AetherDropService.exe')) -or (Test-Path (Join-Path $root 'NekoDropService.exe')) -or (Test-Path (Join-Path $root 'python\python.exe')))
+  $ours = @(Get-Process AetherDrop, AetherDrop-radio, AetherDrop-radio-rtl, AetherDrop-radio-mt, AetherDrop-radio-mtk, nekodrop-radio, nekodrop-radio-rtl, awdld, NekoDropService, AetherDropService -ErrorAction SilentlyContinue) +
           @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-              try { $byPath -and $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } catch { $false } })
+              try { $_.Id -ne $PID -and $_.ProcessName -notlike 'unins*' -and $byPath -and $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } catch { $false } })
   # Processes started from elsewhere that name the folder on their command
   # line: airdrop-beacon.ps1's powershell.exe held airdrop\ open (#22).
   $ours += @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
@@ -464,16 +491,57 @@ function Stop-FromTarget {
   $ours
 }
 Step 'stop an earlier service' {
-  if (Get-Service $Service -ErrorAction SilentlyContinue) {
-    Stop-Service $Service -Force -ErrorAction SilentlyContinue
+  foreach ($serviceName in @($Service, 'NekoDropService')) {
+   if (Get-Service $serviceName -ErrorAction SilentlyContinue) {
+    Stop-Service $serviceName -Force -ErrorAction SilentlyContinue
     # Stop-Service returns before the process is gone; wait for it.
     $deadline = (Get-Date).AddSeconds(20)
-    while ((Get-Service $Service).Status -ne 'Stopped' -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
+    while ((Get-Service $serviceName).Status -ne 'Stopped' -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
   }
+   }
   Stop-FromTarget | Out-Null
+  # Import machine settings and vendor driver/Wi-Fi backups from the old brand.
+  $legacyState = Join-Path $env:ProgramData 'nekodrop'
+  if (Test-Path -LiteralPath $legacyState) {
+    $legacyItems = @(Get-Item -LiteralPath $legacyState) + @(Get-ChildItem -LiteralPath $legacyState -Recurse -Force)
+    if ($legacyItems | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Legacy state contains a directory link' }
+    foreach ($item in Get-ChildItem -LiteralPath $legacyState -Force) {
+      $destination = Join-Path $LogDir $item.Name
+      if (-not (Test-Path -LiteralPath $destination)) { Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -ErrorAction Stop }
+    }
+  }
+  if (Get-Service NekoDropService -ErrorAction SilentlyContinue) {
+    & $ServiceControl delete NekoDropService | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not remove legacy NekoDropService registration' }
+  }
 }
 Step "copy to $Target" {
   New-Item -ItemType Directory -Force $Target | Out-Null
+  # The Explorer menu (AetherDrop-shell.dll) is loaded by explorer.exe and its
+  # COM hosts, which are not ours to stop, so the copy failed on it five times
+  # in a row.  A loaded DLL can still be renamed: move it aside, Explorer keeps
+  # the old one until it restarts, and the new one is used from then on.
+  # Leftovers from earlier updates go now, or at the next restart if still loaded.
+  Get-ChildItem -LiteralPath $Target -Filter 'AetherDrop-shell.dll.*.old' -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+  $shellDll = Join-Path $Target 'AetherDrop-shell.dll'
+  if (Test-Path -LiteralPath $shellDll) {
+    try { [IO.File]::Open($shellDll, 'Open', 'ReadWrite', 'None').Dispose() }
+    catch {
+      $aside = "$shellDll.$((Get-Date).ToString('yyyyMMddHHmmss')).old"
+      try {
+        Move-Item -LiteralPath $shellDll $aside -Force -ErrorAction Stop
+        "    AetherDrop-shell.dll is in use by Explorer: moved aside, replaced after the next sign-in"
+        if (-not ('AetherDrop.MoveLater' -as [type])) {
+          Add-Type -Namespace AetherDrop -Name MoveLater -MemberDefinition @'
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool MoveFileEx(string from, string to, int flags);
+'@
+        }
+        [AetherDrop.MoveLater]::MoveFileEx($aside, $null, 4) | Out-Null  # MOVEFILE_DELAY_UNTIL_REBOOT
+      } catch { "    AetherDrop-shell.dll is in use and could not be moved aside: $($_.Exception.Message)" }
+    }
+  }
   # A file can stay locked a moment after its process exits (or a process may
   # have been started again meanwhile): retry, and say who holds it.
   for ($try = 1; ; $try++) {
@@ -503,7 +571,7 @@ Step 'sign the register-proxy driver with a certificate made and trusted on this
             -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy NonExportable `
             -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(10)
   try {
-    $public = Join-Path $driver 'nekodrop-signing.cer'
+    $public = Join-Path $driver 'AetherDrop-signing.cer'
     Export-Certificate -Cert $cert -FilePath $public | Out-Null
     foreach ($store in $TrustStores) { Import-Certificate -FilePath $public -CertStoreLocation "Cert:\LocalMachine\$store" | Out-Null }
     foreach ($file in 'winawdl_regproxy.cat', 'winawdl_regproxy.dll') {
@@ -512,11 +580,13 @@ Step 'sign the register-proxy driver with a certificate made and trusted on this
     }
     # The Explorer menu's sparse package (Windows 11 first level), same certificate.
     # Not fatal: the classic menu under "Show more options" works without it.
-    $msix = Join-Path $Target 'shell\nekodrop-shell.msix'
+    $msix = Join-Path $Target 'shell\AetherDrop-shell.msix'
     $signtool = Join-Path $Target 'shell\signtool.exe'
     # An earlier registration was signed by the certificate just replaced: drop it,
     # each user's client registers the new one at its next start.
-    Get-AppxPackage -AllUsers -Name nekodrop.shell -ErrorAction SilentlyContinue | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+    foreach ($packageName in 'AetherDrop.shell','nekodrop.shell') {
+      Get-AppxPackage -AllUsers -Name $packageName -ErrorAction SilentlyContinue | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+    }
     if ((Test-Path $msix) -and (Test-Path $signtool)) {
       & $signtool sign /q /fd SHA256 /s My /sha1 $cert.Thumbprint $msix
       if ($LASTEXITCODE -ne 0) { "    the Explorer menu package could not be signed ($LASTEXITCODE)" }
@@ -526,31 +596,34 @@ Step 'sign the register-proxy driver with a certificate made and trusted on this
   }
 }
 Step 'add it to the driver store (binds nothing)' {
-  pnputil /add-driver (Join-Path $driver 'winawdl_regproxy.inf') | Out-Null
+  & $PnpUtil /add-driver (Join-Path $driver 'winawdl_regproxy.inf') | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "pnputil could not add the driver ($LASTEXITCODE)" }
 }
 
 'Network'
-Step "nekodrop's own TAP adapter (DHCP) for Wi-Fi beside AirDrop" {
+Step "AetherDrop's own TAP adapter (DHCP) for Wi-Fi beside AirDrop" {
   try { & "$Source\setup-tap.ps1" -TapSetup "$Source\tap-windows.exe" | Out-Host }
   catch { "    TAP adapter not ready ($($_.Exception.Message)); concurrent mode will fall back to on-demand" }
 }
 Step 'firewall: AirDrop receiver and discovery, from link-local addresses only' {
+  Get-NetFirewallRule -Group 'nekodrop AirDrop' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
   Get-NetFirewallRule -Group $FirewallGroup -ErrorAction SilentlyContinue | Remove-NetFirewallRule
   $common = @{ Group = $FirewallGroup; Direction = 'Inbound'; Action = 'Allow'; Profile = 'Any'; RemoteAddress = 'fe80::/64' }
-  New-NetFirewallRule @common -DisplayName 'nekodrop AirDrop receiver' -Protocol TCP -LocalPort 8771-8779 | Out-Null
-  New-NetFirewallRule @common -DisplayName 'nekodrop AirDrop discovery' -Protocol UDP -LocalPort 5353 | Out-Null
+  New-NetFirewallRule @common -DisplayName 'AetherDrop AirDrop receiver' -Protocol TCP -LocalPort 8771-8779 | Out-Null
+  New-NetFirewallRule @common -DisplayName 'AetherDrop AirDrop discovery' -Protocol UDP -LocalPort 5353 | Out-Null
 }
 
 'Service'
-Step 'install and start NekoDropService (LocalSystem, automatic)' {
-  $exe = Join-Path $Target 'NekoDropService.exe'
+Step 'install and start AetherDropService (LocalSystem, automatic)' {
+  $exe = Join-Path $Target 'AetherDropService.exe'
+  $legacyExe = Join-Path $Target 'NekoDropService.exe'
+  if (Test-Path -LiteralPath $legacyExe) { Remove-Item -LiteralPath $legacyExe -Force -ErrorAction Stop }
   if (-not (Get-Service $Service -ErrorAction SilentlyContinue)) {
     New-Service -Name $Service -BinaryPathName "`"$exe`"" -DisplayName 'AetherDrop AirDrop' `
       -Description 'AirDrop on the built-in Wi-Fi card: owns the card while AirDrop is on.' -StartupType Automatic | Out-Null
-    sc.exe failure $Service reset= 86400 actions= restart/5000/restart/30000/""/0 | Out-Null
+    & $ServiceControl failure $Service reset= 86400 actions= restart/5000/restart/30000/""/0 | Out-Null
   }
-  sc.exe config $Service binPath= "`"$exe`"" DisplayName= 'AetherDrop AirDrop' | Out-Null
+  & $ServiceControl config $Service binPath= "`"$exe`"" DisplayName= 'AetherDrop AirDrop' | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Could not update $Service registration ($LASTEXITCODE)" }
   Start-Service $Service
 }

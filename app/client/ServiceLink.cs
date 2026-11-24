@@ -4,9 +4,9 @@ using System.IO.Pipes;
 using System.Text;
 using System.Text.Json.Nodes;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
-/// <summary>The connection to NekoDropService (\\.\pipe\nekodrop), kept up for the app's lifetime.</summary>
+/// <summary>The connection to AetherDropService (\\.\pipe\AetherDrop), kept up for the app's lifetime.</summary>
 public sealed class ServiceLink : IDisposable
 {
     readonly CancellationTokenSource _cts = new();
@@ -27,7 +27,7 @@ public sealed class ServiceLink : IDisposable
         {
             try
             {
-                using var pipe = new NamedPipeClientStream(".", "nekodrop", PipeDirection.InOut, PipeOptions.Asynchronous);
+                using var pipe = new NamedPipeClientStream(".", "AetherDrop", PipeDirection.InOut, PipeOptions.Asynchronous);
                 await pipe.ConnectAsync(3000, _cts.Token);
                 var reader = new StreamReader(pipe, Encoding.UTF8);
                 _writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
@@ -64,10 +64,10 @@ public sealed class ServiceLink : IDisposable
 
     public void Wake() => Send(new JsonObject { ["do"] = "wake" });
     public void Touch() => Send(new JsonObject { ["do"] = "touch" });
+    public void TransferActivity(bool active) => Send(new JsonObject { ["do"] = "transfer-activity", ["active"] = active });
     public void SetMode(string mode) => Send(new JsonObject { ["do"] = "mode", ["mode"] = mode });
     public void SetFastUnlock(bool on) => Send(new JsonObject { ["do"] = "fast-unlock", ["on"] = on });
     public void SetCoexPlan(bool on) => Send(new JsonObject { ["do"] = "coex-plan", ["on"] = on });
-    public void SetBtCoex(bool on) => Send(new JsonObject { ["do"] = "bt-coex", ["on"] = on });
     /// <summary>Asks for the card list and models (answered with a "cards" event).</summary>
     public void RequestCards() => Send(new JsonObject { ["do"] = "cards" });
     /// <summary>Runs `hardwareId` as `model`; "" and "" go back to automatic.</summary>

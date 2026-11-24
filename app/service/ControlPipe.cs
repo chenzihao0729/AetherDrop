@@ -5,17 +5,17 @@ using System.Security.Principal;
 using System.Text;
 using System.Text.Json.Nodes;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>
-/// \\.\pipe\nekodrop: one JSON object a line in each direction. Commands:
+/// \\.\pipe\AetherDrop: one JSON object a line in each direction. Commands:
 /// {"do":"status"}, {"do":"mode","mode":"concurrent|ondemand|off"},
 /// {"do":"wake"}, {"do":"touch"}, {"do":"stop"}. Events: "state", "log".
 /// Interactive users and SYSTEM may connect; nothing from the network can.
 /// </summary>
 public sealed class ControlPipe(Supervisor sup)
 {
-    const string Name = "nekodrop";
+    const string Name = "AetherDrop";
     readonly List<StreamWriter> _clients = [];
 
     public async Task Run(CancellationToken ct)
@@ -49,6 +49,7 @@ public sealed class ControlPipe(Supervisor sup)
         using var _ = pipe;
         var reader = new StreamReader(pipe, Encoding.UTF8);
         var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
+        var activityOwner = Guid.NewGuid().ToString("N");
         lock (_clients) _clients.Add(writer);
         try
         {
@@ -65,13 +66,13 @@ public sealed class ControlPipe(Supervisor sup)
                     case "status": await Send(writer, sup.Snapshot()); break;
                     case "wake": sup.Wake(); break;
                     case "touch": sup.Touch(); break;
+                    case "transfer-activity": sup.TransferActivity(activityOwner, (bool?)cmd?["active"] ?? false); break;
                     case "stop": sup.Stop("asked by the client", giveBack: true); break;
                     case "mode":
                         if (Enum.TryParse<NetMode>((string?)cmd?["mode"], true, out var m)) sup.SetMode(m);
                         break;
                     case "fast-unlock": sup.SetFastUnlock((bool?)cmd?["on"] ?? false); break;
                     case "coex-plan": sup.SetCoexPlan((bool?)cmd?["on"] ?? false); break;
-                    case "bt-coex": sup.SetBtCoex((bool?)cmd?["on"] ?? false); break;
                     case "cards":
                     {
                         // For the manual choice: the PCI network controllers and the models a card can be run as.
@@ -106,7 +107,11 @@ public sealed class ControlPipe(Supervisor sup)
         }
         catch (IOException) { }
         catch (OperationCanceledException) { }
-        finally { lock (_clients) _clients.Remove(writer); }
+        finally
+        {
+            sup.TransferActivity(activityOwner, false);
+            lock (_clients) _clients.Remove(writer);
+        }
     }
 
     /// <summary>One write at a time per client: a broadcast and a reply used to

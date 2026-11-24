@@ -30,19 +30,10 @@
 #include "dma.h"
 #include "fw.h"
 #include "proxy.h"
-/* RxFrame, TxRate, TxStats, the open options and the backend contract: shared
- * with KernelDevice and future backends, which need none of the headers above. */
+/* RxFrame, TxRate, TxStats, StaParams, the open options and the backend
+ * contract: shared with KernelDevice and future backends, which need none of
+ * the headers above. */
 #include "radio_backend.h"
-
-/* The network the station joins, read from Windows before the card is taken. */
-struct StaParams {
-  uint8_t bssid[6];
-  uint8_t addr[6];      /* our address: the TAP adapter's */
-  uint8_t channel;
-  unsigned width = 20;  /* PHY width while associated */
-  uint16_t beacon_int = 100;
-  bool ht = false, vht = false, mimo = false;
-};
 
 class IwxDevice {
 public:
@@ -216,8 +207,12 @@ private:
   uint32_t read_umac_prph(uint32_t addr) { return read_prph(addr + (gen3() ? 0x300000u : 0u)); }
   void write_umac_prph(uint32_t addr, uint32_t v) { write_prph(addr + (gen3() ? 0x300000u : 0u), v); }
   bool gen3() const { return _card.ax210; }
+  bool bz() const { return _card.bz; }
+  bool use_mld() const { return _use_mld; }
   void set_bits_prph(uint32_t addr, uint32_t bits);
   void clear_bits_prph(uint32_t addr, uint32_t bits);
+  void sw_reset();
+  void ring_rx_doorbell(unsigned idx);
 
   /* Bring-up */
   bool identify(std::string &error);
@@ -253,6 +248,18 @@ private:
   int binding_cmd(uint32_t action);
   int add_monitor_sta();
   int enable_monitor_queue();
+  /* MLD API (Bz / BE200) */
+  int mld_mac_cmd(uint32_t action);
+  int mld_link_add();
+  int mld_link_modify(bool active, uint32_t modify_mask);
+  int mld_add_monitor_sta();
+  int mld_sta_mac_cmd(uint32_t action, bool assoc);
+  int mld_sta_link_add();
+  int mld_sta_link_modify(bool active, uint32_t modify_mask);
+  int mld_sta_link_remove();
+  int mld_sta_cfg_ap(bool assoc);
+  int mld_sec_key_remove(uint32_t key_id, uint32_t key_flags);
+  int disable_queue(uint8_t sta_id, uint8_t tid);
 
   /* Receive */
   void post_rx_buf(unsigned index); /* iwx_update_rx_desc */
@@ -295,11 +302,13 @@ private:
   CardInfo _card;
   bool _integrated = true;
   std::string _fw_name;
-  /* AX210 family */
-  DmaBuf _prph_scratch, _prph_info, _iml_buf, _pnvm_buf;
+  /* AX210 / Bz families */
+  DmaBuf _prph_scratch, _prph_info, _iml_buf, _pnvm_buf, _pnvm_desc;
+  std::vector<DmaBuf> _pnvm_chunks;
   std::vector<uint8_t> _pnvm_raw;
   uint32_t _sku_id[3] = {};
   bool _pnvm_done = false;
+  bool _use_mld = false;
   /* TFD write pointers run modulo 256 (22000) or 65536 (AX210); the slot is
    * the pointer modulo the ring size. */
   unsigned wrap() const { return gen3() ? 65536u : 256u; }
@@ -325,6 +334,10 @@ private:
   /* Notifications the bring-up waits for */
   bool _alive_seen = false, _alive_ok = false, _init_complete = false;
   int _trace_packets = 0; /* packets still to log during the init handshake */
+  /* #39/#43 diagnostics: notification IDs nothing handled (each logged once,
+   * at most 32), and Block Ack notifications naming no queue of ours. */
+  std::vector<uint32_t> _unhandled_notifs;
+  unsigned _ba_foreign_logged = 0;
   static constexpr uint32_t kPrphScratchImrDebugEn = 1u << 1; /* IWX_PRPH_SCRATCH_IMR_DEBUG_EN */
   uint32_t _lmac_error_table = 0, _umac_error_table = 0;
 
@@ -335,17 +348,20 @@ private:
 
   /* Monitor state */
   bool _phy_added = false, _mac_added = false, _binding_added = false,
-       _sta_added = false, _queue_enabled = false;
+       _link_added = false, _link_active = false, _sta_added = false, _queue_enabled = false;
   uint8_t _channel = 0;
   unsigned _width = 20;
   std::array<uint8_t, 6> _address{};
   TxStats _tx_stats;
   StaParams _sta{};
   bool _sta_phy_added = false, _sta_mac_added = false, _sta_binding_added = false,
+       _sta_link_added = false, _sta_link_active = false,
        _sta_sta_added = false, _sta_queue_enabled = false, _sta_shared_binding = false,
-       _sta_assoc = false, _sta_tlc = false, _sta_session_prot = false;
+       _sta_assoc = false, _sta_tlc = false, _sta_session_prot = false, _sta_mfp = false;
   uint16_t _sta_aid = 0;
-  uint8_t _sta_dtim = 1, _sta_ba_tids = 0;
+  uint8_t _sta_dtim = 1, _sta_ba_tids = 0, _sta_gtk_mask = 0, _sta_igtk_id = 0;
+  uint32_t _sta_ptk_flags = 0;
+  uint8_t _sta_baid[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   unsigned _sta_tx_acked = 0, _sta_tx_failed = 0, _sta_tx_fail_logged = 0, _sta_tx_submitted = 0;
   bool _promisc = true;
   bool _ba_station = false;

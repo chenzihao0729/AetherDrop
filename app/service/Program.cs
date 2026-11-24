@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// NekoDropService: runs as LocalSystem, so taking the Wi-Fi card, locking DMA
+// AetherDropService: runs as LocalSystem, so taking the Wi-Fi card, locking DMA
 // memory, creating the AWDL adapter and reading the Wi-Fi profile need no UAC.
-using NekoDrop.Service;
+using AetherDrop.Service;
 
 // --selftest: checks the card catalog offline (no card, registry or administrator
 // rights), so scripts\build-installer.ps1 runs it on the build machine.
@@ -37,7 +37,7 @@ if (args.Contains("--status"))
 {
     var card = Card.Find();
     Console.WriteLine(card is null ? "card: none found"
-        : $"card: {card.InstanceId}{Environment.NewLine}  driver service {card.Service}, INF {card.InfPath}, taken by nekodrop: {Card.TakenByProxy(card)}");
+        : $"card: {card.InstanceId}{Environment.NewLine}  driver service {card.Service}, INF {card.InfPath}, taken by AetherDrop: {Card.TakenByProxy(card)}");
     if (card is not null)
     {
         var p = card.Profile;
@@ -47,7 +47,7 @@ if (args.Contains("--status"))
         // Whether the bound driver looks like the vendor's own (only informative:
         // the service records any non-proxy driver to give the card back to).
         Console.WriteLine($"  bound driver provider \"{card.Provider}\": " +
-                          (Card.BoundToProxy(card) ? "nekodrop's register proxy"
+                          (Card.BoundToProxy(card) ? "AetherDrop's register proxy"
                            : CardCatalog.IsVendorProviderMatch(p, card.Provider) ? $"{p.VendorName}'s driver" : "not recognised as the vendor's driver"));
     }
     var net = Wlan.Current(out var why, readKey: false);
@@ -61,12 +61,12 @@ if (args.Contains("--status"))
 // The service owns the card and reads the Wi-Fi key: only as LocalSystem.
 if (!System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem)
 {
-    Console.Error.WriteLine("NekoDropService runs as a Windows service (LocalSystem). Use --status, --selftest or --give-back here.");
+    Console.Error.WriteLine("AetherDropService runs as a Windows service (LocalSystem). Use --status, --selftest or --give-back here.");
     return;
 }
 
 var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddWindowsService(o => o.ServiceName = "NekoDropService");
+builder.Services.AddWindowsService(o => o.ServiceName = "AetherDropService");
 builder.Services.AddSingleton<Supervisor>();
 builder.Services.AddHostedService<Worker>();
 builder.Build().Run();

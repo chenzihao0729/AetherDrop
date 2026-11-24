@@ -8,8 +8,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AetherDrop</AssemblyName>
-    <RootNamespace>NekoDrop</RootNamespace>
-    <Version>0.1.35</Version>
+    <RootNamespace>AetherDrop</RootNamespace>
+    <Version>2.1.3</Version>
     <Product>AetherDrop</Product>
     <Description>AetherDrop: AirDrop for Windows</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>

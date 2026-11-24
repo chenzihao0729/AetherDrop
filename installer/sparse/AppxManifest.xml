@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sparse package: gives nekodrop the package identity Windows 11 requires for
-     a verb on the first level of the Explorer context menu. It carries no
+<!-- Sparse package: gives AetherDrop the package identity Windows 11 requires for
+     a verb on the first level of the Explorer context menu, and for a place in
+     the Share sheet (Explorer's "Share", other apps' share buttons). It carries no
      program files; its external location is the install folder, where
-     nekodrop-shell.dll and AetherDrop.exe are. install.ps1 signs it with the
+     AetherDrop-shell.dll and AetherDrop.exe are. install.ps1 signs it with the
      certificate made on this PC (Publisher must equal its subject); the client
      registers it for each user. -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -13,8 +14,8 @@
          xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap uap10 desktop4 desktop5 com rescap">
-  <Identity Name="nekodrop.shell" ProcessorArchitecture="neutral"
-            Publisher="CN=nekodrop driver (signed on this PC)" Version="0.1.0.0" />
+  <Identity Name="AetherDrop.shell" ProcessorArchitecture="neutral"
+            Publisher="CN=AetherDrop driver (signed on this PC)" Version="0.2.0.0" />
   <Properties>
     <DisplayName>AetherDrop</DisplayName>
     <PublisherDisplayName>AetherDrop project</PublisherDisplayName>
@@ -32,24 +33,31 @@
     <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
   <Applications>
-    <Application Id="nekodrop" Executable="AetherDrop.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+    <Application Id="AetherDrop" Executable="AetherDrop.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
       <uap:VisualElements AppListEntry="none" DisplayName="AetherDrop" Description="AirDrop for Windows"
                           BackgroundColor="transparent" Square150x150Logo="Assets\logo.png" Square44x44Logo="Assets\logo44.png" />
       <Extensions>
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
             <desktop5:ItemType Type="*">
-              <desktop5:Verb Id="nekodropSend" Clsid="79AAAA41-782F-4AF2-B937-4A587C77FABE" />
+              <desktop5:Verb Id="AetherDropSend" Clsid="79AAAA41-782F-4AF2-B937-4A587C77FABE" />
             </desktop5:ItemType>
             <desktop5:ItemType Type="Directory">
-              <desktop5:Verb Id="nekodropSend" Clsid="79AAAA41-782F-4AF2-B937-4A587C77FABE" />
+              <desktop5:Verb Id="AetherDropSend" Clsid="79AAAA41-782F-4AF2-B937-4A587C77FABE" />
             </desktop5:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>
+        <!-- Share sheet: files shared to AetherDrop open its send window (App.Main) -->
+        <uap:Extension Category="windows.shareTarget">
+          <uap:ShareTarget Description="AirDrop">
+            <uap:SupportedFileTypes><uap:SupportsAnyFileType/></uap:SupportedFileTypes>
+            <uap:DataFormat>StorageItems</uap:DataFormat>
+          </uap:ShareTarget>
+        </uap:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
             <com:SurrogateServer DisplayName="AetherDrop context menu">
-              <com:Class Id="79AAAA41-782F-4AF2-B937-4A587C77FABE" Path="nekodrop-shell.dll" ThreadingModel="STA" />
+              <com:Class Id="79AAAA41-782F-4AF2-B937-4A587C77FABE" Path="AetherDrop-shell.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>

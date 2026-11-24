@@ -11,7 +11,7 @@
  * Usage: winawdl_radio <channel> [--width 20|40|80] [--country XX]
  *          [--mac-type listener|ibss|sta] [--firmware DIR]
  *          [--data-rate 6|12|24|36|48|54|MCS0..MCS15] [--verbose]
- *          [--tx-window N] [--aggregate] [--fast-unlock] [--coex-plan] [--family qu|ax200|ax210|so]
+ *          [--tx-window N] [--aggregate] [--fast-unlock] [--coex-plan] [--family qu|ax200|ax210|so|be200]
  *          [--bt-coex 1|2|3]
  * winawdl's own options (--retries, --capture, --no-block-ack,
  * --no-aggregate, --no-quick-submit) are accepted and ignored.
@@ -46,6 +46,7 @@
 #include "kdev.h"
 #include "radio_backend.h"
 
+#include <optional>
 #include <type_traits>
 #include <map>
 #include "radio_link.h"
@@ -80,8 +81,8 @@ struct Options {
   /* Test mode: serve the pipe without touching the card, and report what the
    * client sends. Checks the radio link against awdld with no hardware. */
   bool no_card = false;
-  /* --kernel: the card runs nekodrop-wlan.sys (Windows keeps its Wi-Fi);
-   * AWDL goes through the driver's NekodropAwdl interface. */
+  /* --kernel: the card runs AetherDrop-wlan.sys (Windows keeps its Wi-Fi);
+   * AWDL goes through the driver's AetherDropAwdl interface. */
   bool kernel = false;
   /* --pcap FILE: every received frame, with radiotap, for Wireshark. */
   std::string pcap;
@@ -451,12 +452,19 @@ int main(int argc, char **argv) {
     /* One informational line for reports; it matches no pattern report.ps1
      * or Supervisor.cs reacts to (iwx_selftest checks the wording). */
     log_line(radio::format_capabilities_summary(caps));
+    /* The station drives the backend through StaDevice (sta_device.h); the
+     * wrapper is only named, never built, for a backend without a station. */
+    using StaDev = std::conditional_t<caps.supports_station, StaDeviceOf<Dev>, int>;
+    std::optional<StaDev> sta_dev;
     std::unique_ptr<WifiStation> sta;
     StaConfig sta_cfg;
     if (!opt.sta_config.empty()) {
       std::string err;
       if constexpr (caps.supports_station) {
-        if (sta_cfg.load(opt.sta_config, err)) sta = std::make_unique<WifiStation>(dev, log_line);
+        if (sta_cfg.load(opt.sta_config, err)) {
+          sta_dev.emplace(dev);
+          sta = std::make_unique<WifiStation>(*sta_dev, log_line);
+        }
         else log_line("station config: " + err);
       } else {
         log_line(radio::station_policy_message(caps));
@@ -527,7 +535,7 @@ int main(int argc, char **argv) {
       uint32_t dest_frames = 0, epoch = 0;
       awdl::BaTxBulk bulk;
       uint8_t token = 0x5a;
-      unsigned asks = 0, resume_failures = 0;
+      unsigned asks = 0, resume_failures = 0, stalls = 0;
       uint16_t peer_window = awdl::kBaWindowMax;
       uint64_t ask_started_us = 0, last_ask_us = 0, rest_until_us = 0, last_peer_us = 0, last_agg_us = 0, retry_us = 0,
                agreed_us = 0;
@@ -1334,8 +1342,18 @@ int main(int argc, char **argv) {
                           static_cast<unsigned long long>(a.singles_fail),
                           static_cast<unsigned>(a.last_fail_status),
                           static_cast<unsigned>(a.last_single_rate));
-            agg.retry_us = t + awdl::kBaTxFailBackoffUS;
+            /* A second stall means this card's firmware never reports Block
+             * Acks (seen on an AX210, #39): stop asking until the radio restarts. */
+            agg.retry_us = ++agg.stalls >= 2 ? UINT64_MAX : t + awdl::kBaTxFailBackoffUS;
             stop(detail);
+            /* The peer still holds the session it agreed to: end it (DELBA), as
+             * after a finished bulk send, so its receive side does not keep
+             * waiting for aggregate sequence numbers that will never come (#39). */
+            static const uint8_t kAwdlBssid[6] = {0x00, 0x25, 0x00, 0xff, 0x94, 0x73};
+            uint8_t delba[awdl::kDelbaLength];
+            awdl::build_delba(delba, agg.peer, dev_address, kAwdlBssid, 0, true, ++mgmt_seq);
+            uq.push_front({std::vector<uint8_t>(delba, delba + sizeof(delba)), TxRate{}, false});
+            if (agg.retry_us == UINT64_MAX) log_line("aggregate: off until the radio restarts (no Block Acks twice)");
           }
         }
       }

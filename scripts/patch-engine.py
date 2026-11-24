@@ -1,7 +1,7 @@
-# Applies nekodrop's changes to the staged copy of winawdl's AirDrop engine.
+# Applies AetherDrop's changes to the staged copy of winawdl's AirDrop engine.
 # Usage: python patch-engine.py <staged airdrop folder>
 #
-# - A stable mDNS instance name (NEKODROP_SERVICE_ID, kept by the client), so
+# - A stable mDNS instance name (AETHERDROP_SERVICE_ID, kept by the client), so
 #   an engine restart (a new awdl0 after the radio restarts) shows up on the
 #   iPhone as the same device instead of a second one.
 # - Spare receiver ports: when 8771 is held by another program the receiver
@@ -16,7 +16,7 @@ import sys
 
 NL = chr(10)
 HELPER = NL.join([
-    'SPARE_PORTS = range(8771, 8780)  # nekodrop: the firewall rule allows these',
+    'SPARE_PORTS = range(8771, 8780)  # AetherDrop: the firewall rule allows these',
     '',
     '',
     'def _bind_spare(settings, watcher):',
@@ -37,8 +37,31 @@ engine = pathlib.Path(sys.argv[1]) / 'engine.py'
 text = engine.read_text(encoding='utf-8')
 changed = False
 
+negotiation_hook = NL.join([
+    '    def connection_opened(self, address):',
+    '        # Protect TLS/metadata negotiation before an /Ask exists.',
+    "        self.events.say('negotiating', peer=address)",
+    '',
+])
+if negotiation_hook not in text:
+    target = '    def _open(self, sender_name, model, files, links, waits):'
+    if text.count(target) != 1:
+        sys.exit('engine.py: Incoming._open moved; update negotiation patch')
+    text = text.replace(target, negotiation_hook + NL + target, 1)
+    changed = True
+
+# A phone can prepare/transcode a large video after accepting /Ask. Thirty
+# seconds was too short and turned the accepted session into "nothing arrived".
+old_due = 'UPLOAD_DUE_SECONDS = 30' + NL
+new_due = 'UPLOAD_DUE_SECONDS = 180  # AetherDrop: allow large-video preparation' + NL
+if new_due not in text:
+    if text.count(old_due) != 1:
+        sys.exit('engine.py: the upload preparation deadline moved; update patch-engine.py')
+    text = text.replace(old_due, new_due, 1)
+    changed = True
+
 old = 'service_id = secrets.token_hex(6)'
-new = "service_id = os.environ.get('NEKODROP_SERVICE_ID') or secrets.token_hex(6)"
+new = "service_id = os.environ.get('AETHERDROP_SERVICE_ID') or secrets.token_hex(6)"
 if new not in text:
     if old not in text:
         sys.exit('engine.py: the service id line moved; update patch-engine.py')
@@ -54,6 +77,19 @@ if new not in text:
         sys.exit('engine.py: the receiver bind line moved; update patch-engine.py')
     text = text.replace(old, new, 1)
     text = text.replace(NL + 'class ', NL + HELPER + 'class ', 1)
+    changed = True
+
+# #45: the --outdir default called valid_dir('~/Downloads') while the parser was
+# built, so with no Downloads folder in the profile (deleted after choosing
+# another receive folder) the engine died at start every few seconds, even
+# though the client always passes --outdir.  A string default goes through
+# `type` only when --outdir is missing, so standalone runs behave as before.
+old = "default=receiver.valid_dir('~/Downloads'))"
+new = "default='~/Downloads')  # AetherDrop: checked only when --outdir is missing (#45)"
+if new not in text:
+    if text.count(old) != 1:
+        sys.exit('engine.py: the --outdir default moved; update patch-engine.py')
+    text = text.replace(old, new, 1)
     changed = True
 
 if changed:
@@ -100,7 +136,7 @@ FOLLOW = [
     (
         '        self._shy_said = 0' + NL,
         '        self._shy_said = 0' + NL +
-        '        self._gone_names = {}  # nekodrop: key -> name of receivers that went away' + NL,
+        '        self._gone_names = {}  # AetherDrop: key -> name of receivers that went away' + NL,
     ),
     (
         NL.join([
@@ -120,7 +156,7 @@ FOLLOW = [
         '    def link(self, scope):' + NL,
         NL.join([
             '    def find(self, key, wait):',
-            '        """nekodrop: the receiver under `key`, or the one that came back with',
+            '        """AetherDrop: the receiver under `key`, or the one that came back with',
             '        its name, waiting up to `wait` seconds for it."""',
             '        deadline = time.monotonic() + wait',
             '        while True:',
@@ -206,7 +242,7 @@ FOLLOW = [
     (
         'BIND_RETRY_SECONDS = 5' + NL,
         'BIND_RETRY_SECONDS = 5' + NL +
-        'FOLLOW_SECONDS = 15  # nekodrop: wait for a receiver that announces itself again' + NL,
+        'FOLLOW_SECONDS = 15  # AetherDrop: wait for a receiver that announces itself again' + NL,
     ),
 ]
 engine = pathlib.Path(sys.argv[1]) / 'engine.py'
@@ -234,8 +270,8 @@ if changed:
 transfer_path = pathlib.Path(sys.argv[1]) / 'transfer.py'
 text = transfer_path.read_text(encoding='utf-8')
 TRANSFER_PATCHES = [
-    ('END_MARKER_WAIT_SECONDS = 2' + NL, 'END_MARKER_WAIT_SECONDS = 0.5  # nekodrop: faster video/Live Photo completion' + NL),
-    ('DVZIP_BLOCK_BYTES = 16 * KIB' + NL, 'DVZIP_BLOCK_BYTES = 64 * KIB  # nekodrop: 64 KiB DVZip blocks' + NL),
+    ('END_MARKER_WAIT_SECONDS = 2' + NL, 'END_MARKER_WAIT_SECONDS = 0.5  # AetherDrop: faster video/Live Photo completion' + NL),
+    ('DVZIP_BLOCK_BYTES = 16 * KIB' + NL, 'DVZIP_BLOCK_BYTES = 64 * KIB  # AetherDrop: 64 KiB DVZip blocks' + NL),
     (
         NL.join([
             'def encode_dvzip(pieces):',
@@ -331,6 +367,48 @@ if new_s not in text:
 
 receiver_path = pathlib.Path(sys.argv[1]) / 'receiver.py'
 text = receiver_path.read_text(encoding='utf-8')
+legacy_media = NL.join([
+    '# Version 1 with no codecs listed makes the sender convert to legacy formats',
+    '# (JPEG, not HEIF). The key has to be present in both answers.',
+    "MEDIA_CAPABILITIES = json.dumps({'Version': 1}).encode()",
+])
+original_media = NL.join([
+    '# AetherDrop stores media bytes directly; it does not require a legacy export.',
+    '# Use the macOS capability schema documented by OpenDrop, including HEVC',
+    '# Main/Main10 level 6.2 so high-frame-rate/4K clips need not become H.264/30fps.',
+    '# This describes file acceptance, not the installed Windows playback codecs.',
+    'MEDIA_CAPABILITIES = json.dumps({',
+    "    'Version': 1,",
+    "    'Codecs': {'hvc1': {'Profiles': {",
+    "        'VTPerProfileSupport': {",
+    "            '1': {'VTMaxPlaybackLevel': 186},",
+    "            '2': {'VTMaxPlaybackLevel': 186},",
+    "            '3': {},",
+    '        },',
+    "        'VTSupportedProfiles': [1, 2, 3],",
+    '    }}},',
+    "    'ContainerFormats': {'public.heif-standard': {",
+    "        'HeifSubtypes': ['public.avci', 'public.heic', 'public.heif'],",
+    '    }},',
+    '}).encode()',
+])
+if original_media not in text:
+    if text.count(legacy_media) != 1:
+        sys.exit('receiver.py: media capability declaration moved; update original-media patch')
+    text = text.replace(legacy_media, original_media, 1)
+    receiver_path.write_text(text, encoding='utf-8')
+connection_hook = NL.join([
+    "        logging.info('connection from [%s]:%s', client_address[0], client_address[1])",
+    "        opened = getattr(self.watcher, 'connection_opened', None)",
+    '        if opened is not None:',
+    '            opened(client_address[0])',
+])
+if connection_hook not in text:
+    target = "        logging.info('connection from [%s]:%s', client_address[0], client_address[1])"
+    if text.count(target) != 1:
+        sys.exit('receiver.py: connection logging moved; update negotiation patch')
+    text = text.replace(target, connection_hook, 1)
+    receiver_path.write_text(text, encoding='utf-8')
 old_r = NL.join([
     '    def setup(self):',
     '        self.request.settimeout(transfer.READ_IDLE_TIMEOUT_SECONDS)',
@@ -352,3 +430,78 @@ if new_r not in text:
     text = text.replace(old_r, new_r, 1)
     receiver_path.write_text(text, encoding='utf-8')
     print('receiver: 2 MiB socket buffers + TCP_NODELAY')
+
+
+# Contacts Only: AetherDrop_identity.py (copied beside the engine by
+# build-installer.ps1) gives the receiver and the sender an Apple ID identity
+# when the client set AETHERDROP_IDENTITY: the Apple-signed certificate on TLS,
+# the validation record in /Discover and /Ask, and a Contacts Only filter on
+# the receiver (AETHERDROP_RECEIVE=contacts). Without one nothing changes.
+# The hooks below import it, so the patch brings it along: engine-test ran the
+# patched engine without it and every test module of receiver/sender/engine
+# failed to import (ModuleNotFoundError) from 2.1.0 on.
+_identity = pathlib.Path(__file__).resolve().parent.parent / 'installer' / 'AetherDrop_identity.py'
+(pathlib.Path(sys.argv[1]) / 'AetherDrop_identity.py').write_bytes(_identity.read_bytes())
+
+
+def _hook(name, pairs, mark):
+    path = pathlib.Path(sys.argv[1]) / name
+    text = path.read_text(encoding='utf-8')
+    if mark in text:
+        return
+    for old, new in pairs:
+        if text.count(old) != 1:
+            sys.exit(f'{name}: {old[:60]!r} moved; update patch-engine.py')
+        text = text.replace(old, new, 1)
+    path.write_text(text, encoding='utf-8')
+    print(f'{name}: Apple ID identity (Contacts Only)')
+
+
+_hook('receiver.py', [
+    (NL + 'import mdns' + NL, NL + 'import mdns' + NL + 'import AetherDrop_identity' + NL),
+    (NL.join([
+        "        if self.path == '/Discover':",
+        '            self.answer(self.identity_plist())',
+        '        else:',
+        '            self.handle_ask(body)',
+    ]), NL.join([
+        '        try:',
+        "            sender_record = plistlib.loads(body).get('SenderRecordData') if body else None",
+        '        except Exception:',
+        '            sender_record = None',
+        '        if not AetherDrop_identity.allowed(sender_record):',
+        "            self.reject(401, 'not one of the contacts (Contacts Only)')",
+        '            return',
+        "        if self.path == '/Discover':",
+        '            self.answer(self.identity_plist())',
+        '        else:',
+        '            self.handle_ask(body)',
+    ])),
+    ("            'ReceiverModelName': settings.model," + NL,
+     "            'ReceiverModelName': settings.model," + NL + '            **AetherDrop_identity.receiver_extra(),' + NL),
+    (NL.join([
+        '    context.load_cert_chain(certificate, key)',
+        '    # Senders present self-signed certificates, so none is asked for.',
+    ]), NL.join([
+        '    if not AetherDrop_identity.load_into(context):',
+        '        context.load_cert_chain(certificate, key)',
+        '    # Senders present self-signed certificates, so none is asked for.',
+    ])),
+], 'import AetherDrop_identity')
+
+_hook('sender.py', [
+    (NL + 'import mdns' + NL, NL + 'import mdns' + NL + 'import AetherDrop_identity' + NL),
+    (NL.join([
+        '    context.verify_mode = ssl.CERT_NONE',
+        '    return context',
+    ]), NL.join([
+        '    context.verify_mode = ssl.CERT_NONE',
+        '    # With an Apple ID identity the Apple-signed certificate goes on: an',
+        '    # iPhone takes that one (a self-signed one it refuses, see above).',
+        '    AetherDrop_identity.load_into(context)',
+        '    return context',
+    ])),
+    ("post_plist(connection, '/Discover', {})", "post_plist(connection, '/Discover', AetherDrop_identity.sender_body({}))"),
+    ("        'SenderModelName': DEFAULT_MODEL," + NL,
+     "        'SenderModelName': DEFAULT_MODEL," + NL + '        **AetherDrop_identity.sender_extra(),' + NL),
+], 'import AetherDrop_identity')

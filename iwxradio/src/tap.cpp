@@ -125,7 +125,7 @@ bool TapAdapter::open(const std::string &wanted, std::string &error) {
       error = "no TAP-Windows (tap0901) adapter found: install tap-windows6";
     } else if (last_err == ERROR_FILE_NOT_FOUND) {
       error = "cannot open " + last_path +
-              " (error 2: TAP adapter is not present; reinstall nekodrop to recreate it)";
+              " (error 2: TAP adapter is not present; reinstall AetherDrop to recreate it)";
     } else {
       error = "cannot open " + last_path + " (error " + std::to_string(last_err) +
               "): is another program using the TAP adapter?";

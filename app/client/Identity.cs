@@ -3,7 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>
 /// The receiver's TLS identity, made here so no OpenSSL is needed: the same

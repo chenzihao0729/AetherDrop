@@ -54,28 +54,56 @@ int main(int argc, char **argv) {
   EXPECT_SIZE(iwx_gen3_bc_tbl, 2048);
   EXPECT_SIZE(iwx_context_info_gen3, 104);   /* IPC_CONTEXT_INFO_S */
   EXPECT_SIZE(iwx_alive_resp_v5, 0x74 + 12); /* v4 + sku_id */
+  /* Bz family (BE200) and MLD API */
+  EXPECT_SIZE(iwx_rx_completion_desc_bz, 4);
+  EXPECT_SIZE(iwx_bz_bc_tbl, 8192);
+  EXPECT_SIZE(iwx_prph_scratch_mem_desc_addr_array, 256);
+  EXPECT_SIZE(iwx_mac_config_cmd, 52);       /* MAC_CONTEXT_CONFIG_CMD_API_S_VER_2 / _VER_3 */
+  EXPECT_SIZE(iwx_link_config_cmd, 208);     /* LINK_CONTEXT_CONFIG_CMD_API_S_VER_1..9 */
+  EXPECT_SIZE(iwx_sta_cfg_cmd_v1, 96);       /* STA_CMD_API_S_VER_1 */
+  EXPECT_SIZE(iwx_sta_cfg_cmd_v2, 104);      /* STA_CMD_API_S_VER_2 */
+  EXPECT_SIZE(iwx_remove_sta_cmd, 4);        /* REMOVE_STA_API_S_VER_1 */
+  EXPECT_SIZE(iwx_rlc_config_cmd, 32);       /* RLC_CONFIG_CMD_API_S_VER_2 */
+  EXPECT_SIZE(iwx_mcc_update_resp_v8, 24);   /* LAR_UPDATE_MCC_CMD_RESP_S_VER_8 */
+  EXPECT_SIZE(iwx_rx_baid_cfg_cmd, 16);      /* RX_BAID_ALLOCATION_CONFIG_CMD_API_S_VER_2 */
+  EXPECT_SIZE(iwx_rx_baid_cfg_resp, 4);      /* RX_BAID_ALLOCATION_RESPONSE_API_S_VER_1 */
+  EXPECT_SIZE(iwx_scd_queue_cfg_cmd, 36);    /* TX_QUEUE_CFG_CMD_API_S_VER_3 */
+  EXPECT_SIZE(iwx_sec_key_cmd, 80);          /* SEC_KEY_CMD_API_S_VER_1 */
+  EXPECT_SIZE(iwx_tlc_config_cmd_v4, 28);    /* TLC_MNG_CONFIG_CMD_API_S_VER_4 */
+  EXPECT_SIZE(iwx_scan_config, 12);          /* SCAN_CONFIG_DB_CMD_API_S_5 */
 
   /* Card selection (cards.h), with register values as iwx keeps them. */
-  struct CardCase { uint16_t dev; uint32_t hw_rev, rf_id; const char *fw; bool ax210, integrated; };
+  struct CardCase { uint16_t dev; uint32_t hw_rev, rf_id; const char *fw; bool ax210, bz, integrated; };
   const CardCase cases[] = {
-      {0x43F0, 0x354, 0x0010a100, "iwlwifi-QuZ-a0-hr-b0-68.ucode", false, true}, /* this project's AX201 */
-      {0xA0F0, 0x334, 0x0010a100, "iwlwifi-Qu-b0-hr-b0-68.ucode", false, true},
-      {0x34F0, 0x338, 0x0010a100, "iwlwifi-Qu-c0-hr-b0-68.ucode", false, true},
-      {0x02F0, 0x354, 0x00108000, "iwlwifi-QuZ-a0-jf-b0-68.ucode", false, true},  /* 9560 on QuZ */
-      {0x2723, 0x340, 0x0010a100, "iwlwifi-cc-a0-68.ucode", false, false},        /* AX200 */
-      {0x2725, 0x420, 0x0010d000, "iwlwifi-ty-a0-gf-a0-68.ucode", true, false},    /* AX210: discrete */
-      {0x7AF0, 0x370, 0x0010d000, "iwlwifi-so-a0-gf-a0-68.ucode", true, true},     /* AX211 */
-      {0x51F0, 0x370, 0x1010d000, "iwlwifi-so-a0-gf4-a0-68.ucode", true, true},    /* AX411 */
-      {0x2726, 0x420, 0x0010d000, nullptr, true, true},                             /* SnJ: no firmware */
-      {0x1234, 0x354, 0x0010a100, nullptr, false, true},
+      {0x43F0, 0x354, 0x0010a100, "iwlwifi-QuZ-a0-hr-b0-68.ucode", false, false, true}, /* this project's AX201 */
+      {0xA0F0, 0x334, 0x0010a100, "iwlwifi-Qu-b0-hr-b0-68.ucode", false, false, true},
+      {0x34F0, 0x338, 0x0010a100, "iwlwifi-Qu-c0-hr-b0-68.ucode", false, false, true},
+      {0x02F0, 0x354, 0x00108000, "iwlwifi-QuZ-a0-jf-b0-68.ucode", false, false, true},  /* 9560 on QuZ */
+      {0x2723, 0x340, 0x0010a100, "iwlwifi-cc-a0-68.ucode", false, false, false},        /* AX200 */
+      {0x2725, 0x420, 0x0010d000, "iwlwifi-ty-a0-gf-a0-68.ucode", true, false, false},   /* AX210: discrete */
+      {0x7AF0, 0x370, 0x0010d000, "iwlwifi-so-a0-gf-a0-68.ucode", true, false, true},    /* AX211 */
+      {0x51F0, 0x370, 0x1010d000, "iwlwifi-so-a0-gf4-a0-68.ucode", true, false, true},   /* AX411 */
+      {0x272B, 0x470, 0x00112000, "iwlwifi-gl-c0-fm-c0-100.ucode", true, true, false},   /* BE200: discrete Gl/Fm */
+      {0x272B, 0x470, 0x0010d000, nullptr, true, true, false},                           /* Gl with non-FM radio */
+      {0x2726, 0x420, 0x0010d000, nullptr, true, false, true},                           /* SnJ: no firmware */
+      {0x1234, 0x354, 0x0010a100, nullptr, false, false, true},
   };
   for (const auto &k : cases) {
     const CardInfo c = cards::select(k.dev, k.hw_rev, k.rf_id);
-    const bool ok = k.fw ? (c.known && c.firmware == k.fw && c.ax210 == k.ax210 && c.integrated == k.integrated)
+    const bool ok = k.fw ? (c.known && c.firmware == k.fw && c.ax210 == k.ax210 && c.bz == k.bz &&
+                            c.integrated == k.integrated)
                          : !c.known;
     std::printf("%s card %04x rev %03x rf %08x -> %s%s\n", ok ? "ok  " : "FAIL", k.dev, k.hw_rev, k.rf_id,
                 c.known ? c.firmware.c_str() : "unsupported: ", c.known ? "" : c.why.c_str());
     if (!ok) failures++;
+  }
+  {
+    const CardInfo c = cards::select(0x272B, 0x470, 0x00112000);
+    if (!c.known || !c.ax210 || !c.bz || c.integrated || c.xtal_latency != 12000 ||
+        !c.low_latency_xtal || c.tested || cards::family_device("be200") != 0x272B) {
+      std::printf("FAIL BE200 transport parameters or family_device(\"be200\")\n");
+      failures++;
+    }
   }
   {
     const CardInfo c = cards::select(0x43F0, 0x354, 0x0010a100);

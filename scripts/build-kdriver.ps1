@@ -1,4 +1,4 @@
-# Builds kdriver\ into build\kdriver\nekodrop-wlan.sys (KMDF 1.33, NetAdapterCx 2.4,
+# Builds kdriver\ into build\kdriver\AetherDrop-wlan.sys (KMDF 1.33, NetAdapterCx 2.4,
 # WiFiCx 1.2) with MSVC and the WDK NuGet package. Not signed here.
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\toolchain.ps1"
@@ -58,22 +58,22 @@ $hw = @('iwx.cpp', 'iwx_sta.cpp', 'iwx_scan.cpp', 'fw.cpp' | ForEach-Object { Jo
 if ($LASTEXITCODE -ne 0) { throw "compile failed ($LASTEXITCODE)" }
 $objs = Get-ChildItem $out -Filter *.obj | ForEach-Object FullName
 $link = Join-Path (Split-Path $tools.Cl) 'link.exe'
-& $link /nologo /DRIVER /SUBSYSTEM:NATIVE /ENTRY:FxDriverEntry /NODEFAULTLIB "/OUT:$out\nekodrop-wlan.sys" @objs `
+& $link /nologo /DRIVER /SUBSYSTEM:NATIVE /ENTRY:FxDriverEntry /NODEFAULTLIB "/OUT:$out\AetherDrop-wlan.sys" @objs `
   ntoskrnl.lib hal.lib wmilib.lib BufferOverflowFastFailK.lib wdfldr.lib wdfdriverentry.lib `
   netadaptercxstub.lib wificxstub.lib WificxTLVGenParse.lib ndis.lib wdmsec.lib
 if ($LASTEXITCODE -ne 0) { throw "link failed ($LASTEXITCODE)" }
-Get-Item (Join-Path $out 'nekodrop-wlan.sys') | Select-Object Name, Length
+Get-Item (Join-Path $out 'AetherDrop-wlan.sys') | Select-Object Name, Length
 
 # Driver package: .sys + INF + firmware, catalog (signed on the target PC).
 $pkg = Join-Path $out 'package'
 if (Test-Path $pkg) { Remove-Item $pkg -Recurse -Force }
 New-Item -ItemType Directory -Force $pkg | Out-Null
-Copy-Item (Join-Path $out 'nekodrop-wlan.sys'), (Join-Path $kdir 'nekodrop-wlan.inf') $pkg
+Copy-Item (Join-Path $out 'AetherDrop-wlan.sys'), (Join-Path $kdir 'AetherDrop-wlan.inf') $pkg
 $fw = Join-Path $repo 'third_party\ForbiddenItlwm\itlwm\firmware'
 Get-ChildItem $fw -Filter 'iwlwifi-Qu*-hr-b0-68.ucode' | Copy-Item -Destination $pkg
 Copy-Item (Join-Path $repo 'third_party\ForbiddenItlwm\iwlwifi-firmware-license') (Join-Path $pkg 'LICENSE.iwlwifi-firmware.txt')
 if (Test-Path $tools.InfVerif) {
-  & $tools.InfVerif /w (Join-Path $pkg 'nekodrop-wlan.inf') | Out-Host
+  & $tools.InfVerif /w (Join-Path $pkg 'AetherDrop-wlan.inf') | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "InfVerif failed ($LASTEXITCODE)" }
 }
 & $tools.Inf2Cat "/driver:$pkg" /os:10_X64 /uselocaltime | Out-Null

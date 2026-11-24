@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -8,7 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 public sealed class TrayWindow : FloatingCard
 {
@@ -17,25 +17,35 @@ public sealed class TrayWindow : FloatingCard
     readonly Ellipse _dot;
     readonly CheckBox _receive;
     DesktopClickMonitor? _desktop;
-    readonly System.Windows.Shapes.Path _pointer;
+    readonly System.Windows.Shapes.Path _outline, _outlineShadow;
     ScaleTransform? _openingScale;
     System.Windows.Threading.DispatcherTimer? _overflowMonitor;
     public bool IsClosing => Dismissing;
     public TrayWindow(App app) : base(244, 208)
     {
         _app = app; Title = Branding.Name;
-        var shell = Surface;
-        _pointer = new System.Windows.Shapes.Path
+        // A single filled/stroked silhouette includes the pointer: no horizontal
+        // card edge crosses its base, and the shadow follows the same contour.
+        _outline = new System.Windows.Shapes.Path
         {
-            Data = Geometry.Parse("M 0,0 L 10,11 L 20,0"), Fill = Card.Background,
-            Stroke = Card.BorderBrush, StrokeThickness = 1, Width = 20, Height = 12,
-            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(Width / 2 - 10, 0, 0, 0), IsHitTestVisible = false,
+            Fill = Card.Background, Stroke = Card.BorderBrush, StrokeThickness = 1,
+            StrokeLineJoin = PenLineJoin.Round, SnapsToDevicePixels = false,
+            IsHitTestVisible = false,
         };
-        shell.Children.Add(_pointer);
-        Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(41) });
-        Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(39) });
-        Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(39) });
+        _outlineShadow = new System.Windows.Shapes.Path
+        {
+            Fill = Card.Background, SnapsToDevicePixels = false, IsHitTestVisible = false,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            { BlurRadius = 12, ShadowDepth = 3, Opacity = .16, Color = Colors.Black },
+        };
+        Surface.Children.Remove(Shadow);
+        Surface.Children.Insert(0, _outlineShadow);
+        Surface.Children.Insert(1, _outline);
+        Card.Background = Brushes.Transparent; Card.BorderBrush = Brushes.Transparent;
+        SetPointer(Width / 2);
+        Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+        Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+        Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
         Body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         // Include the top padding in the header band: center all three items
         // between the card's inner top edge and the first separator.
@@ -47,7 +57,7 @@ public sealed class TrayWindow : FloatingCard
         heading.Children.Add(logo);
         var title = TrayLabel(Branding.Name, 17, true);
         Grid.SetColumn(title, 1); heading.Children.Add(title); Body.Children.Add(heading);
-        var row = new Grid(); row.Children.Add(TrayLabel(Text("允许接收", "Allow receiving"), 13, true));
+        var row = new Grid(); row.Children.Add(TrayLabel(L.T("tray.receive"), 13, true));
         _receive = new ReceiveToggle { IsChecked = app.Settings.Discoverable, Width = 39, Height = 20,
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Cursor = System.Windows.Input.Cursors.Hand };
         var template = new ControlTemplate(typeof(CheckBox));
@@ -59,10 +69,10 @@ public sealed class TrayWindow : FloatingCard
         knob.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left); knob.SetValue(FrameworkElement.MarginProperty, new Thickness(2));
         track.AppendChild(knob); template.VisualTree = track;
         _receive.Template = template;
-        System.Windows.Automation.AutomationProperties.SetName(_receive, Text("允许接收", "Allow receiving"));
+        System.Windows.Automation.AutomationProperties.SetName(_receive, L.T("tray.receive"));
         _receive.Click += (_, _) => { app.SetDiscoverable(_receive.IsChecked == true); Refresh(); };
         row.Children.Add(_receive); AddRow(row, 1);
-        var name = new Grid(); name.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) }); name.ColumnDefinitions.Add(new ColumnDefinition());
+        var name = new Grid(); name.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) }); name.ColumnDefinitions.Add(new ColumnDefinition());
         var nameCaption = TrayLabel(Text("本机名称", "This device"), 12, false, Palette.Brush(92, 101, 110));
         nameCaption.FontWeight = Typography.RegularWeight; name.Children.Add(nameCaption);
         var device = TrayLabel(Environment.MachineName, 14); device.FontWeight = Typography.EmphasisWeight; Grid.SetColumn(device, 1); name.Children.Add(device); AddRow(name, 2);
@@ -114,6 +124,30 @@ public sealed class TrayWindow : FloatingCard
             Dismiss();
         };
     }
+    void SetPointer(double center)
+    {
+        const double inset = 10.5, radius = 13, half = 10;
+        double right = Width - inset, bottom = Height - inset;
+        center = Math.Clamp(center, inset + radius + half, right - radius - half);
+        var shape = new StreamGeometry();
+        using (var c = shape.Open())
+        {
+            c.BeginFigure(new Point(inset + radius, inset), true, true);
+            c.LineTo(new Point(right - radius, inset), true, false);
+            c.ArcTo(new Point(right, inset + radius), new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
+            c.LineTo(new Point(right, bottom - radius), true, false);
+            c.ArcTo(new Point(right - radius, bottom), new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
+            c.LineTo(new Point(center + half, bottom), true, false);
+            c.LineTo(new Point(center, Height - 1), true, false);
+            c.LineTo(new Point(center - half, bottom), true, false);
+            c.LineTo(new Point(inset + radius, bottom), true, false);
+            c.ArcTo(new Point(inset, bottom - radius), new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
+            c.LineTo(new Point(inset, inset + radius), true, false);
+            c.ArcTo(new Point(inset + radius, inset), new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
+        }
+        shape.Freeze();
+        _outline.Data = _outlineShadow.Data = shape;
+    }
     static TextBlock TrayLabel(string text, double size, bool bold = false, Brush? color = null)
     {
         var label = Label(text, size, bold, color);
@@ -152,7 +186,7 @@ public sealed class TrayWindow : FloatingCard
         var dpi = VisualTreeHelper.GetDpi(this);
         Left = Math.Round(Left * dpi.DpiScaleX) / dpi.DpiScaleX;
         Top = Math.Round(Top * dpi.DpiScaleY) / dpi.DpiScaleY;
-        _pointer.Margin = new Thickness(Math.Clamp(p.X - Left - 10, 14, Width - 34), 0, 0, 0);
+        SetPointer(p.X - Left);
         Surface.RenderTransformOrigin = new Point(Math.Clamp((p.X - Left) / Width, 0, 1), 1);
         if (Motion)
         {

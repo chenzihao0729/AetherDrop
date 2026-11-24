@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-#include "../../kdriver/nekoioctl.h"
+#include "../../kdriver/aetherdrop_ioctl.h"
 
 /* The handle is overlapped: a synchronous handle would serialize every
  * request behind the reader's pending IOCTL_NEKO_READ. */
@@ -25,13 +25,13 @@ bool KernelDevice::open(const RadioOpenOptions &options, std::string &error) {
   _handle = CreateFileA(NEKO_AWDL_USER_PATH, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
                         FILE_FLAG_OVERLAPPED, nullptr);
   if (_handle == INVALID_HANDLE_VALUE) {
-    error = "cannot open the nekodrop kernel driver (\\\\.\\NekodropAwdl, error " + std::to_string(GetLastError()) +
-            "); is nekodrop-wlan.sys bound to the card?";
+    error = "cannot open the AetherDrop kernel driver (\\\\.\\AetherDropAwdl, error " + std::to_string(GetLastError()) +
+            "); is AetherDrop-wlan.sys bound to the card?";
     return false;
   }
   if (options.country.size() == 2 && options.country != "ZZ") set_country(options.country);
   check_health();
-  _log("kernel driver: AWDL through nekodrop-wlan.sys, Windows keeps the station");
+  _log("kernel driver: AWDL through AetherDrop-wlan.sys, Windows keeps the station");
   return true;
 }
 

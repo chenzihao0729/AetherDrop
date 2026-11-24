@@ -1,37 +1,46 @@
 // SPDX-License-Identifier: GPL-2.0-only
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>Which user-mode radio drives a card family.</summary>
 public enum RadioBackendKind
 {
-    /// <summary>nekodrop-radio: the Intel 22000 / AX210 driver ported from ForbiddenItlwm (iwxradio).</summary>
+    /// <summary>AetherDrop-radio: the Intel 22000 / AX210 driver ported from ForbiddenItlwm (iwxradio).</summary>
     Iwx,
     /// <summary>winawdl's devourer (Realtek RTL8852CE): monitor and inject only, no station.</summary>
     Devourer,
+    /// <summary>AetherDrop-radio-mt: the MediaTek MT7902 driver ported from Linux mt76 (mtradio/): sniffer, inject,
+    /// AWDL peer stations, and a 5 GHz Wi-Fi station on the host (the card moves between the router and AWDL).</summary>
+    Mt76,
+    /// <summary>AetherDrop-radio-mtk: the MediaTek MT7922 / MT7921 user-mode driver (mtkradio/):
+    /// AWDL monitor/inject and a 5 GHz Wi-Fi station on the host (experimental Concurrent mode,
+    /// time-sharing the card's single channel with AWDL).</summary>
+    MtkRadio,
 }
 
 /// <summary>
-/// What a card family can do in nekodrop. The service asks these instead of
+/// What a card family can do in AetherDrop. The service asks these instead of
 /// assuming Intel, so a card that cannot keep Wi-Fi beside AirDrop (no station
 /// in its radio) runs on demand, and radio options it lacks are never passed.
 /// </summary>
 /// <param name="SupportsConcurrentWifi">the radio runs a Wi-Fi station beside AWDL (mode Concurrent)</param>
 /// <param name="SupportsFastSend">the radio takes --tx-window (experimental faster sending)</param>
 /// <param name="SupportsAggregate">the radio takes --aggregate (A-MPDU sending, always on since 0.1.35)</param>
-/// <param name="SupportsKernelDriver">nekodrop-wlan.sys can own the card (Windows' Wi-Fi and AWDL on one driver)</param>
+/// <param name="SupportsKernelDriver">AetherDrop-wlan.sys can own the card (Windows' Wi-Fi and AWDL on one driver)</param>
 /// <param name="MinBarBytes">the smallest register BAR the register proxy must map (driver/regproxy MIN_BAR_LEN)</param>
+/// <param name="StationOn24GHz">the radio's station joins 2.4 GHz networks too; without it a dual-band
+/// network is joined at its 5 GHz access point</param>
 public sealed record AdapterCapabilities(bool SupportsConcurrentWifi, bool SupportsFastSend, bool SupportsAggregate,
-                                         bool SupportsKernelDriver, uint MinBarBytes)
+                                         bool SupportsKernelDriver, uint MinBarBytes, bool StationOn24GHz = true)
 {
     /// <summary>
-    /// The Intel cards nekodrop runs today. Also what the service assumes before
+    /// The Intel cards AetherDrop runs today. Also what the service assumes before
     /// it has seen a card, so a missing or unreadable card behaves as before.
     /// </summary>
     public static readonly AdapterCapabilities IntelDefault = new(true, true, true, true, 0x2000);
 }
 
 /// <summary>
-/// One PCI device nekodrop knows: who makes it, which radio drives it, what it
+/// One PCI device AetherDrop knows: who makes it, which radio drives it, what it
 /// can do, which register-proxy INF takes it, and how the vendor's own driver
 /// is told apart from the proxy when the card is given back.
 /// </summary>
@@ -60,7 +69,7 @@ public sealed record AdapterProfile(string VendorId, string DeviceId, string Ven
 
 /// <summary>
 /// The service's single list of Wi-Fi cards and what each can do. Pure data and
-/// logic (no SetupAPI, registry or files), so `NekoDropService --selftest` checks
+/// logic (no SetupAPI, registry or files), so `AetherDropService --selftest` checks
 /// it on a build machine without a card or administrator rights.
 ///
 /// Keep the active Intel IDs in step with `kDeviceIds` in iwxradio/src/cards.h,
@@ -69,7 +78,7 @@ public sealed record AdapterProfile(string VendorId, string DeviceId, string Ven
 /// </summary>
 public static class CardCatalog
 {
-    // nekodrop's one register proxy (driver/regproxy): selects the largest
+    // AetherDrop's one register proxy (driver/regproxy): selects the largest
     // memory BAR (>= 8 KiB) so it covers both Intel (8 KiB BAR0) and
     // Realtek RTL8852CE (1 MiB BAR2).
     const string ProxyInf = "winawdl_regproxy.inf";
@@ -77,6 +86,18 @@ public static class CardCatalog
     const string ProxyProvider = "winairdrop project";
     // Killer (Rivet Networks) cards are Intel chips with Intel's driver repackaged.
     static readonly string[] IntelProviders = ["Intel", "Killer", "Rivet Networks"];
+    // Intel BE200 (Bz/Gl, Wi-Fi 7): experimental MLD station (Concurrent &
+    // on-demand, 2.4/5 GHz), no A-MPDU, no fast-send window, no kernel driver.
+    static readonly AdapterCapabilities Be200Caps = new(true, false, false, false, 0x2000);
+
+    /* The card completes no frame that waits for an acknowledgement on 2.4 GHz
+     * (mtradio's --test-kinds), and a station's every frame does: 5 GHz only. */
+    static readonly AdapterCapabilities MediaTekCaps = new(true, false, false, false, 0x10000, StationOn24GHz: false);
+    static readonly string[] MediaTekProviders = ["MediaTek"];
+    /* Same Connac2 / mt7921 family as MT7902: 2.4 GHz ACKed TX is unverified on
+     * MT7922/MT7921, so Concurrent Wi-Fi stays 5 GHz only until tested on hardware. */
+    static readonly AdapterCapabilities MtkRadioCaps = new(true, false, false, false, 0x100000, StationOn24GHz: false);
+    static readonly string[] MtkRadioProviders = ["MediaTek", "AMD"];
 
     static AdapterProfile Intel(string device, string family) =>
         new("8086", device, "Intel", family, RadioBackendKind.Iwx, AdapterCapabilities.IntelDefault,
@@ -96,12 +117,33 @@ public static class CardCatalog
         Intel("7AF0", "AX210 / AX211 / AX411"), Intel("51F0", "AX210 / AX211 / AX411"),
         Intel("51F1", "AX210 / AX211 / AX411"), Intel("54F0", "AX210 / AX211 / AX411"),
         Intel("7F70", "AX210 / AX211 / AX411"),
-        // Built-in on-demand backend (winawdl's devourer, nekodrop-radio-rtl.exe):
+        // Intel BE200 (Bz/Gl, Wi-Fi 7): experimental, untested on hardware; taken like
+        // the other cards (the maintainer's call: restore gives the card back in one
+        // step). Concurrent & on-demand, and --family be200 picks the Bz/MLD path in iwxradio.
+        new AdapterProfile("8086", "272B", "Intel", "BE200 (experimental)", RadioBackendKind.Iwx, Be200Caps,
+            ProxyInf, ProxyService, ProxyProvider, IntelProviders, Active: true, RadioFamily: "be200"),
+        // Built-in on-demand backend (winawdl's devourer, AetherDrop-radio-rtl.exe):
         // monitor and inject only (no station, so Concurrent runs OnDemand), and
         // its registers sit in a 1 MiB BAR (>= 64 KiB).
         new AdapterProfile("10EC", "C852", "Realtek", "RTL8852CE", RadioBackendKind.Devourer,
             new AdapterCapabilities(false, false, false, false, 0x10000),
             ProxyInf, ProxyService, ProxyProvider, ["Realtek"], Active: true),
+        // MediaTek MT7902 (AetherDrop-radio-mt.exe, ported from Linux mt76/mt7921):
+        // Concurrent with a 5 GHz network (the radio's host-side station shares the
+        // card's one channel with AWDL); 1 MiB BAR0.
+        new AdapterProfile("14C3", "7902", "MediaTek", "MT7902", RadioBackendKind.Mt76, MediaTekCaps,
+            ProxyInf, ProxyService, ProxyProvider, MediaTekProviders, Active: true),
+        // MediaTek MT7922 / MT7921 (AetherDrop-radio-mtk.exe, mtkradio/):
+        // Concurrent with a 5 GHz network (experimental, host-side station shares
+        // the card's one channel with AWDL) & On-Demand; 1 MiB BAR0.
+        new AdapterProfile("14C3", "0616", "MediaTek", "MT7922 (RZ616)", RadioBackendKind.MtkRadio, MtkRadioCaps,
+            ProxyInf, ProxyService, ProxyProvider, MtkRadioProviders, Active: true),
+        new AdapterProfile("14C3", "7922", "MediaTek", "MT7922", RadioBackendKind.MtkRadio, MtkRadioCaps,
+            ProxyInf, ProxyService, ProxyProvider, MtkRadioProviders, Active: true),
+        new AdapterProfile("14C3", "7961", "MediaTek", "MT7921", RadioBackendKind.MtkRadio, MtkRadioCaps,
+            ProxyInf, ProxyService, ProxyProvider, MtkRadioProviders, Active: true),
+        new AdapterProfile("14C3", "0608", "MediaTek", "MT7921 (RZ608)", RadioBackendKind.MtkRadio, MtkRadioCaps,
+            ProxyInf, ProxyService, ProxyProvider, MtkRadioProviders, Active: true),
     ];
 
     /// <summary>The cards the service takes.</summary>
@@ -183,7 +225,10 @@ public static class CardCatalog
         new("ax200", "Intel AX200", "8086", RadioBackendKind.Iwx, AdapterCapabilities.IntelDefault, IntelProviders),
         new("ax210", "Intel AX210 (discrete)", "8086", RadioBackendKind.Iwx, AdapterCapabilities.IntelDefault, IntelProviders),
         new("so", "Intel AX211 / AX411 (So, CNVi)", "8086", RadioBackendKind.Iwx, AdapterCapabilities.IntelDefault, IntelProviders),
+        new("be200", "Intel BE200 (experimental)", "8086", RadioBackendKind.Iwx, Be200Caps, IntelProviders),
         new("rtl8852ce", "Realtek RTL8852CE", "10EC", RadioBackendKind.Devourer, RealtekCaps, ["Realtek"]),
+        new("mt7902", "MediaTek MT7902", "14C3", RadioBackendKind.Mt76, MediaTekCaps, MediaTekProviders),
+        new("mt7922", "MediaTek MT7922 / MT7921 (RZ616 / RZ608)", "14C3", RadioBackendKind.MtkRadio, MtkRadioCaps, MtkRadioProviders),
     ];
 
     /// <summary>
@@ -195,7 +240,7 @@ public static class CardCatalog
         if (!TryParsePciId(instanceOrHardwareId, out var v, out var d)) return null;
         var m = ManualModels.FirstOrDefault(x => x.Key == modelKey);
         if (m is null || m.VendorId != v) return null;
-        return new AdapterProfile(v, d, v == "8086" ? "Intel" : "Realtek", m.Name + " (chosen in settings)", m.Backend,
+        return new AdapterProfile(v, d, v switch { "8086" => "Intel", "14C3" => "MediaTek", _ => "Realtek" }, m.Name + " (chosen in settings)", m.Backend,
                                   m.Capabilities, ProxyInf, ProxyService, ProxyProvider, m.VendorProviderPatterns,
                                   Active: true, RadioFamily: m.Backend == RadioBackendKind.Iwx ? m.Key : null);
     }
@@ -218,10 +263,12 @@ public static class CardCatalog
         void Check(bool ok, string what) { if (!ok) fail.Add(what); }
 
         // The 15 Intel IDs the service took before the catalog (Card.DeviceIds, 0.1.20)
-        // plus Realtek RTL8852CE (10EC:C852) built-in on-demand backend = 16 active profiles.
+        // plus Realtek RTL8852CE (10EC:C852), MediaTek MT7902 (14C3:7902), and
+        // MediaTek MT7922/MT7921 (14C3:0616, 7922, 7961, 0608) = 21 active profiles.
         string[] intel = ["43F0", "A0F0", "02F0", "06F0", "34F0", "3DF0", "4DF0",
                           "2723", "2725", "7A70", "7AF0", "51F0", "51F1", "54F0", "7F70"];
-        Check(ActiveProfiles.Count == intel.Length + 1, $"{ActiveProfiles.Count} active profiles, expected {intel.Length + 1}");
+        Check(ActiveProfiles.Count == intel.Length + 7, $"{ActiveProfiles.Count} active profiles, expected {intel.Length + 7}");
+        Check(AllProfiles.Count == ActiveProfiles.Count, $"{AllProfiles.Count} total profiles, expected {ActiveProfiles.Count}");
         foreach (var dev in intel)
         {
             var id = $"PCI\\VEN_8086&DEV_{dev}&SUBSYS_00748086&REV_00\\3&11583659&0&A3";
@@ -279,36 +326,95 @@ public static class CardCatalog
         var iwx = ActiveProfiles[0];
         Check(iwx.Backend == RadioBackendKind.Iwx, $"ActiveProfiles[0] backend {iwx.Backend}, expected Iwx");
         Check(SameLaunch(BuildRadioLaunch(iwx, 6, false, "", null, false, false),
-                         "nekodrop-radio.exe", "6", "--width", "20", "--tx-window", "64"),
+                         "AetherDrop-radio.exe", "6", "--width", "20", "--tx-window", "64"),
               "Iwx ch 6 default launch args");
         Check(SameLaunch(BuildRadioLaunch(iwx, 149, false, "JP", @"C:\run\sta.conf", true, true),
-                         "nekodrop-radio.exe", "149", "--width", "80", "--country", "JP",
+                         "AetherDrop-radio.exe", "149", "--width", "80", "--country", "JP",
                          "--sta-config", @"C:\run\sta.conf", "--tx-window", "64", "--aggregate", "--fast-unlock"),
               "Iwx full flags launch args");
         Check(SameLaunch(BuildRadioLaunch(iwx, 149, false, "", @"C:\run\sta.conf", false, false, true),
-                         "nekodrop-radio.exe", "149", "--width", "80", "--sta-config", @"C:\run\sta.conf",
+                         "AetherDrop-radio.exe", "149", "--width", "80", "--sta-config", @"C:\run\sta.conf",
                          "--tx-window", "64", "--coex-plan"),
               "Iwx coexistence plan launch args");
         Check(SameLaunch(BuildRadioLaunch(iwx, 44, true, "US", null, true, true, true),
-                         "nekodrop-radio.exe", "44", "--width", "80", "--kernel", "--country", "US"),
+                         "AetherDrop-radio.exe", "44", "--width", "80", "--kernel", "--country", "US"),
               "Iwx kernel mode must suppress the user-mode radio's options");
         Check(SameLaunch(BuildRadioLaunch(iwx, 149, false, "", null, false, false, btCoexBalanced: true),
-                         "nekodrop-radio.exe", "149", "--width", "80", "--tx-window", "64", "--bt-coex", "1"),
+                         "AetherDrop-radio.exe", "149", "--width", "80", "--tx-window", "64", "--bt-coex", "1"),
               "Iwx balanced Bluetooth coexistence launch args");
         Check(SameLaunch(BuildRadioLaunch(iwx, 149, true, "", null, false, false, btCoexBalanced: true),
-                         "nekodrop-radio.exe", "149", "--width", "80", "--kernel"),
+                         "AetherDrop-radio.exe", "149", "--width", "80", "--kernel"),
               "Iwx kernel mode must suppress --bt-coex");
         if (r is not null)
         {
             Check(SameLaunch(BuildRadioLaunch(r, 6, true, "JP", @"C:\run\sta.conf", true, true),
-                             "nekodrop-radio-rtl.exe", "6", "--width", "20"),
+                             "AetherDrop-radio-rtl.exe", "6", "--width", "20"),
                   "Devourer ch 6 must strip all Intel flags");
             Check(SameLaunch(BuildRadioLaunch(r, 149, false, "", null, false, false, btCoexBalanced: true),
-                             "nekodrop-radio-rtl.exe", "149", "--width", "80"),
+                             "AetherDrop-radio-rtl.exe", "149", "--width", "80"),
                   "Devourer must not get --bt-coex");
             Check(SameLaunch(BuildRadioLaunch(r, 149, false, "", null, false, false),
-                             "nekodrop-radio-rtl.exe", "149", "--width", "80"),
+                             "AetherDrop-radio-rtl.exe", "149", "--width", "80"),
                   "Devourer ch 149 default launch args");
+        }
+
+        // Built-in MediaTek MT7902: active, Mt76 backend, Concurrent kept; the station
+        // config and the country go to the radio, no Intel option does.
+        var mt = MatchActive("PCI\\VEN_14C3&DEV_7902&SUBSYS_60401A3B&REV_00\\6&1");
+        if (mt is null) fail.Add("14C3:7902 is not active");
+        else
+        {
+            Check(mt.VendorName == "MediaTek" && mt.Backend == RadioBackendKind.Mt76, $"14C3:7902 vendor {mt.VendorName} backend {mt.Backend}");
+            Check(mt.Capabilities.SupportsConcurrentWifi && !mt.Capabilities.SupportsFastSend &&
+                  !mt.Capabilities.SupportsAggregate && !mt.Capabilities.SupportsKernelDriver &&
+                  !mt.Capabilities.StationOn24GHz, "14C3:7902 capabilities");
+            Check(AdapterCapabilities.IntelDefault.StationOn24GHz, "Intel station must keep 2.4 GHz");
+            Check(EffectiveMode(NetMode.Concurrent, mt.Capabilities) == NetMode.Concurrent, "14C3:7902 Concurrent changed");
+            Check(SameLaunch(BuildRadioLaunch(mt, 44, false, "JP", @"C:\run\sta.conf", true, true, true, true),
+                             "AetherDrop-radio-mt.exe", "44", "--width", "80", "--country", "JP", "--sta-config", @"C:\run\sta.conf"),
+                  "Mt76 launch args with a station");
+            Check(SameLaunch(BuildRadioLaunch(mt, 6, false, "", null, false, false),
+                             "AetherDrop-radio-mt.exe", "6", "--width", "20"),
+                  "Mt76 ch 6 default launch args");
+        }
+
+        // Built-in MediaTek MT7922 / MT7921: active, MtkRadio backend, 1 MiB BAR, Concurrent
+        // kept (5 GHz only); --country and --sta-config go to the radio, no Intel option does.
+        foreach (var (dev, family) in new[] { ("0616", "MT7922 (RZ616)"), ("7922", "MT7922"),
+                                              ("7961", "MT7921"), ("0608", "MT7921 (RZ608)") })
+        {
+            var id = $"PCI\\VEN_14C3&DEV_{dev}&SUBSYS_E0CD1A3B&REV_00\\4&1";
+            var mtk = MatchActive(id);
+            if (mtk is null) { fail.Add($"14C3:{dev} is not active"); continue; }
+            Check(Classify(id) == mtk, $"14C3:{dev} Classify and MatchActive disagree");
+            Check(MatchActive($"pci\\ven_14c3&dev_{dev.ToLowerInvariant()}&subsys_e0cd1a3b\\4&1") == mtk,
+                  $"lower-case 14C3:{dev} not taken");
+            Check(mtk.HardwareId == $"PCI\\VEN_14C3&DEV_{dev}", $"14C3:{dev} hardware ID {mtk.HardwareId}");
+            Check(mtk.VendorName == "MediaTek" && mtk.FamilyName == family && mtk.Backend == RadioBackendKind.MtkRadio,
+                  $"14C3:{dev} vendor {mtk.VendorName} family {mtk.FamilyName} backend {mtk.Backend}");
+            Check(mtk.Capabilities.SupportsConcurrentWifi && !mtk.Capabilities.SupportsFastSend &&
+                  !mtk.Capabilities.SupportsAggregate && !mtk.Capabilities.SupportsKernelDriver &&
+                  !mtk.Capabilities.StationOn24GHz,
+                  $"14C3:{dev} capabilities");
+            Check(mtk.Capabilities.MinBarBytes == 0x100000, $"14C3:{dev} BAR {mtk.Capabilities.MinBarBytes:x}");
+            Check(EffectiveMode(NetMode.Concurrent, mtk.Capabilities) == NetMode.Concurrent,
+                  $"14C3:{dev} Concurrent changed");
+            Check(EffectiveMode(NetMode.OnDemand, mtk.Capabilities) == NetMode.OnDemand, $"14C3:{dev} OnDemand changed");
+            Check(EffectiveMode(NetMode.Off, mtk.Capabilities) == NetMode.Off, $"14C3:{dev} Off changed");
+            Check(IsVendorProviderMatch(mtk, "MediaTek, Inc."), $"14C3:{dev} MediaTek provider not matched");
+            Check(IsVendorProviderMatch(mtk, "AMD"), $"14C3:{dev} AMD provider not matched");
+            Check(!IsVendorProviderMatch(mtk, "Intel"), $"14C3:{dev} Intel provider matched as MediaTek's");
+            Check(!IsVendorProviderMatch(mtk, "winairdrop project"), $"14C3:{dev} proxy provider matched as MediaTek's");
+            Check(SameLaunch(BuildRadioLaunch(mtk, 149, true, "JP", @"C:\run\sta.conf", true, true, true, true),
+                             "AetherDrop-radio-mtk.exe", "149", "--width", "80", "--country", "JP",
+                             "--sta-config", @"C:\run\sta.conf"),
+                  $"MtkRadio 14C3:{dev} ch 149 launch args with a station");
+            Check(SameLaunch(BuildRadioLaunch(mtk, 6, false, "ZZ", null, false, false),
+                             "AetherDrop-radio-mtk.exe", "6", "--width", "20"),
+                  $"MtkRadio 14C3:{dev} ch 6 launch args (ZZ omitted)");
+            Check(SameLaunch(BuildRadioLaunch(mtk, 44, false, "00", null, false, false),
+                             "AetherDrop-radio-mtk.exe", "44", "--width", "80"),
+                  $"MtkRadio 14C3:{dev} ch 44 launch args (00 omitted)");
         }
 
         // Every backend kind, profile and manual model has a registered radio backend.
@@ -325,19 +431,60 @@ public static class CardCatalog
             Check(mq.HardwareId == "PCI\\VEN_8086&DEV_9999" && mq.Backend == RadioBackendKind.Iwx && mq.RadioFamily == "qu",
                   $"manual qu profile {mq.HardwareId} {mq.Backend} {mq.RadioFamily}");
             Check(SameLaunch(BuildRadioLaunch(mq, 6, false, "", null, false, false),
-                             "nekodrop-radio.exe", "6", "--width", "20", "--tx-window", "64", "--family", "qu"),
+                             "AetherDrop-radio.exe", "6", "--width", "20", "--tx-window", "64", "--family", "qu"),
                   "manual qu launch args");
         }
         var mr = ManualProfile("PCI\\VEN_10EC&DEV_C852", "rtl8852ce");
         Check(mr is { Backend: RadioBackendKind.Devourer, RadioFamily: null }, "manual rtl8852ce profile");
+        var mm = ManualProfile("PCI\\VEN_14C3&DEV_7922", "mt7922");
+        Check(mm is { Backend: RadioBackendKind.MtkRadio, RadioFamily: null }, "manual mt7922 profile");
         Check(ManualProfile("PCI\\VEN_10EC&DEV_C852", "qu") is null, "an Intel model accepted for a Realtek card");
+        Check(ManualProfile("PCI\\VEN_10EC&DEV_C852", "be200") is null, "be200 model accepted for a Realtek card");
         Check(ManualProfile("PCI\\VEN_8086&DEV_2723", "nope") is null, "an unknown model accepted");
         Check(ManualProfile("USB\\VID_0BDA&PID_8812", "rtl8852ce") is null, "a USB device accepted");
         Check(ManualModels.Select(x => x.Key).Distinct().Count() == ManualModels.Count, "duplicate manual model keys");
 
-        // Ethernet chips from the same vendors and Wi-Fi cards nekodrop does not know.
+        // Experimental Intel BE200 (8086:272B): active like the other cards, Concurrent & on demand, --family be200.
+        const string be200 = "PCI\\VEN_8086&DEV_272B&SUBSYS_00F48086&REV_1A\\4&1";
+        var be = MatchActive(be200);
+        Check(be is { Active: true, Backend: RadioBackendKind.Iwx, VendorName: "Intel", RadioFamily: "be200" }, "8086:272B active profile");
+        if (be is not null)
+        {
+            Check(be.Capabilities.SupportsConcurrentWifi && be.Capabilities.StationOn24GHz &&
+                  !be.Capabilities.SupportsFastSend && !be.Capabilities.SupportsAggregate &&
+                  !be.Capabilities.SupportsKernelDriver && be.Capabilities.MinBarBytes == 0x2000,
+                  "8086:272B capabilities");
+            Check(EffectiveMode(NetMode.Concurrent, be.Capabilities) == NetMode.Concurrent, "8086:272B Concurrent changed");
+            Check(EffectiveMode(NetMode.OnDemand, be.Capabilities) == NetMode.OnDemand, "8086:272B OnDemand changed");
+            Check(SameLaunch(BuildRadioLaunch(be, 6, false, "", null, true, false),
+                             "AetherDrop-radio.exe", "6", "--width", "20", "--family", "be200"),
+                  "8086:272B on-demand launch args");
+            Check(SameLaunch(BuildRadioLaunch(be, 149, false, "JP", @"C:\run\sta.conf", true, false),
+                             "AetherDrop-radio.exe", "149", "--width", "80", "--country", "JP",
+                             "--sta-config", @"C:\run\sta.conf", "--family", "be200"),
+                  "8086:272B concurrent launch args");
+        }
+        var mbe = ManualProfile(be200, "be200");
+        if (mbe is null) fail.Add("manual be200 on 8086:272B refused");
+        else
+        {
+            Check(mbe.Active && mbe.Backend == RadioBackendKind.Iwx && mbe.RadioFamily == "be200",
+                  $"manual be200 profile {mbe.HardwareId} {mbe.Backend} {mbe.RadioFamily}");
+            Check(mbe.Capabilities.SupportsConcurrentWifi && mbe.Capabilities.StationOn24GHz &&
+                  !mbe.Capabilities.SupportsFastSend && !mbe.Capabilities.SupportsAggregate &&
+                  !mbe.Capabilities.SupportsKernelDriver && mbe.Capabilities.MinBarBytes == 0x2000,
+                  "manual be200 capabilities");
+            Check(EffectiveMode(NetMode.Concurrent, mbe.Capabilities) == NetMode.Concurrent, "be200 Concurrent changed");
+            Check(SameLaunch(BuildRadioLaunch(mbe, 149, false, "JP", @"C:\run\sta.conf", true, true, true, true),
+                             "AetherDrop-radio.exe", "149", "--width", "80", "--country", "JP",
+                             "--sta-config", @"C:\run\sta.conf", "--fast-unlock", "--coex-plan",
+                             "--bt-coex", "1", "--family", "be200"),
+                  "manual be200 launch args");
+        }
+
+        // Ethernet chips from the same vendors and Wi-Fi cards AetherDrop does not know.
         foreach (var other in new[] { "PCI\\VEN_8086&DEV_15F3&SUBSYS_00008086\\1", "PCI\\VEN_10EC&DEV_8168&SUBSYS_00000000\\1",
-                                      "PCI\\VEN_14C3&DEV_7922&SUBSYS_00000000\\1", "PCI\\VEN_8086&DEV_7E40&SUBSYS_00908086\\1" })
+                                      "PCI\\VEN_14C3&DEV_7925&SUBSYS_00000000\\1", "PCI\\VEN_8086&DEV_7E40&SUBSYS_00908086\\1" })
         {
             Check(MatchActive(other) is null, $"{other} would be taken");
             Check(Classify(other) is null, $"{other} is classified");

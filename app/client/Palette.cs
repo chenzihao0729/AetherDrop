@@ -1,42 +1,69 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.Windows;
 using System.Windows.Media;
+using System.ComponentModel;
+using System.Windows.Data;
+using System.Globalization;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>Shared light/dark semantic equivalents for every custom surface.</summary>
 public static class Palette
 {
     static readonly System.Collections.Concurrent.ConcurrentDictionary<Color,SolidColorBrush> Brushes = new();
-    static readonly Lazy<bool> SystemDark = new(Native.AppsUseDarkTheme);
-    public static SolidColorBrush Brush(byte r,byte g,byte b) => Brushes.GetOrAdd(Color(r,g,b),color =>
+    sealed class Signals : INotifyPropertyChanged
     {
-        var brush=new SolidColorBrush(color);brush.Freeze();return brush;
-    });
-    public static bool Dark => Environment.GetEnvironmentVariable("AETHERDROP_APPEARANCE") switch
+        public int Revision { get; private set; }
+        public event PropertyChangedEventHandler? PropertyChanged;
+        public void Refresh() { Revision++; PropertyChanged?.Invoke(this,new PropertyChangedEventArgs(nameof(Revision))); }
+    }
+    static readonly Signals Appearance = new();
+    sealed class LiveColor(Func<Color> get) : IValueConverter
     {
-        "dark" => true, "light" => false, _ => SystemDark.Value,
+        public object Convert(object value, Type type, object parameter, CultureInfo culture) => get();
+        public object ConvertBack(object value, Type type, object parameter, CultureInfo culture) => throw new NotSupportedException();
+    }
+    public static string Preference { get; private set; } = "auto";
+    static bool _systemDark = Native.AppsUseDarkTheme();
+    public static void RefreshSystemAppearance() => _systemDark = Native.AppsUseDarkTheme();
+    public static void SetAppearance(string preference) { RefreshSystemAppearance(); Preference=preference; Appearance.Refresh(); }
+    static SolidColorBrush LiveBrush(Func<Color> color)
+    {
+        var brush=new SolidColorBrush(color());
+        BindingOperations.SetBinding(brush,SolidColorBrush.ColorProperty,new Binding(nameof(Signals.Revision))
+            { Source=Appearance, Converter=new LiveColor(color), Mode=BindingMode.OneWay });
+        return brush;
+    }
+    public static SolidColorBrush SemanticBrush(string role) => LiveBrush(()=>UiColors.Get(role,Dark));
+    public static SolidColorBrush Brush(byte r,byte g,byte b) => Brushes.GetOrAdd(System.Windows.Media.Color.FromRgb(r,g,b),
+        original=>LiveBrush(()=>Adapt(original)));
+    public static bool Dark => Preference switch
+    {
+        "dark" => true, "light" => false, _ => Environment.GetEnvironmentVariable("AETHERDROP_APPEARANCE") switch
+        { "dark"=>true, "light"=>false, _=>_systemDark },
     };
     public static Color Color(byte r, byte g, byte b) => Adapt(System.Windows.Media.Color.FromRgb(r,g,b));
     public static Color Adapt(Color light)
     {
-        if (!Dark) return light;
         string key=$"{light.R:X2}{light.G:X2}{light.B:X2}";
-        string hex=key switch
+        string? role = key switch
         {
-            "1C2024" => "EEF3F8", "6C737A" or "5C656E" => "AAB7C5", "87929D" => "91A1B2",
-            "007AFF" => "409CFF", "FDFEFF" => "202731", "F5FAFC" or "F6F9FC" => "192029",
-            "F8FBFE" or "F5F9FD" => "252F3B", "FFFFFF" => "202A35",
-            "EDF5FF" => "20354E", "D6E8FF" => "243F60", "E3F0FF" or "E6F1FF" => "2B4562",
-            "B8D9FF" => "345C85", "B9D7FF" or "D3E5FC" => "365777",
-            "C5D1DC" or "C7D2DD" or "BCCBD8" or "C2C9D0" => "455363",
-            "D2E0ED" or "DDE6EE" or "DFE7EE" or "E2EAF2" or "C4CFD8" => "354252",
-            "E8EFF6" or "DEE4E9" => "3B4857", "9EAFBE" => "6B7F94",
-            "BFC5C9" => "526172", "AAAFB4" => "8291A1", "FAFDFF" => "202A35",
-            _ => key,
+            "007AFF" => "Accent",
+            "1C2024" => "Text", "6C737A" or "5C656E" => "Secondary",
+            "87929D" or "9EAFBE" or "AAAFB4" => "Muted",
+            "FDFEFF" or "FAFDFF" or "FFFFFF" => "Raised",
+            "F5FAFC" or "F6F9FC" => "Background",
+            "F8FBFE" or "F5F9FD" => "Hover",
+            "EDF5FF" or "D6E8FF" or "E3F0FF" or "E6F1FF" or "B8D9FF" or "B9D7FF" or "D3E5FC" => "Selection",
+            "C5D1DC" or "C7D2DD" or "BCCBD8" or "C2C9D0" => "StrongBorder",
+            "D2E0ED" or "DDE6EE" or "DFE7EE" or "E2EAF2" or "C4CFD8" => "Border",
+            "E8EFF6" or "DEE4E9" => "Track",
+            "BFC5C9" => "SwitchOff",
+            _ => null,
         };
-        return System.Windows.Media.Color.FromRgb(Convert.ToByte(hex[..2],16),Convert.ToByte(hex[2..4],16),Convert.ToByte(hex[4..],16));
+        return role is null ? light : UiColors.Get(role, Dark);
     }
+
     public static System.Drawing.Color Drawing(byte r,byte g,byte b)
     {
         var color=Color(r,g,b);return System.Drawing.Color.FromArgb(color.R,color.G,color.B);

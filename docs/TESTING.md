@@ -13,7 +13,7 @@ Change one variable at a time. A useful first matrix is:
 | # | Mode | Wi-Fi station | AirDrop channel | Notes |
 |---|---|---|---|---|
 | A | Concurrent | Connected, station on channel 40 | 149 | The common “Wi-Fi and AirDrop together” case |
-| B | Concurrent | Explicitly disconnected in nekodrop | 149 | No station, but still Concurrent |
+| B | Concurrent | Explicitly disconnected in AetherDrop | 149 | No station, but still Concurrent |
 | C | On-Demand | No station | 149 | The card is taken only for the transfer |
 | D | Concurrent | Connected, station on channel 149 | 149 | Same-channel control, if the router allows it |
 
@@ -30,7 +30,7 @@ Use a file large enough to make the transfer phase measurable. A single file aro
 
 Record before the first run:
 
-- nekodrop version;
+- AetherDrop version;
 - Windows version and build;
 - Wi-Fi card model and driver;
 - mode: Concurrent, On-Demand or Off;
@@ -45,7 +45,7 @@ Keep the receiver unlocked and its AirDrop sheet open for every run. A locked ph
 
 ## Procedure
 
-1. Select the mode in the nekodrop UI and wait until the radio is ready.
+1. Select the mode in the AetherDrop UI and wait until the radio is ready.
 2. Wait about 10 seconds after the radio is ready before the first send. This avoids measuring startup or channel-settling work.
 3. Confirm the state in the UI: mode, channel, A-MPDU and coexistence plan.
 4. Start one send. Keep the receiver unlocked and accept the request promptly.
@@ -56,7 +56,7 @@ Keep the receiver unlocked and its AirDrop sheet open for every run. A locked ph
 
 For the explicit “disconnect Wi-Fi” condition:
 
-- use nekodrop's own Wi-Fi control, not “disable the adapter” in Windows;
+- use AetherDrop's own Wi-Fi control, not “disable the adapter” in Windows;
 - verify that the state shows no station and the AirDrop channel is unchanged;
 - do not change the router channel at the same time;
 - after the test, reconnect and confirm the station is back.
@@ -109,7 +109,7 @@ Useful service/radio log lines:
 
 ```markdown
 ### Environment
-- nekodrop:
+- AetherDrop:
 - Windows:
 - Wi-Fi card:
 - Mode:

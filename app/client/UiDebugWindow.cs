@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 public sealed class UiDebugWindow : Window
 {
@@ -18,11 +18,11 @@ public sealed class UiDebugWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Palette.Brush(246, 249, 252);
         Foreground = Palette.Brush(28, 32, 36);
-        FontFamily = Typography.Regular; FontSize = 14;
-        var root = new StackPanel { Margin = new Thickness(26) };
-        root.Children.Add(new TextBlock { Text = "UI 调试", FontSize = 25, FontWeight = Typography.EmphasisWeight });
+        Typography.Apply(this); FontSize = 14;
+        var root = new StackPanel { Margin = new Thickness(24) };
+        root.Children.Add(new TextBlock { Text = "UI 调试", FontSize = 24, FontWeight = Typography.EmphasisWeight });
         root.Children.Add(new TextBlock { Text = "模拟数据 · 不连接后台服务 · 不接管网卡\n不修改正式设置，不会实际接收文件。", Foreground = Palette.Brush(108,115,122),
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 18) });
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 16) });
         root.Children.Add(ActionButton("① 打开托盘弹窗", session.ShowTray));
         root.Children.Add(ActionButton("预览主界面", () =>
         {
@@ -41,14 +41,14 @@ public sealed class UiDebugWindow : Window
         _status = new TextBlock { Text = session.Status, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Brush(108,115,122), Margin = new Thickness(0, 14, 0, 0) };
         root.Children.Add(_status);
         root.Children.Add(new TextBlock { Text = "也可点击调试托盘图标打开弹窗。\n修改源码后，关闭此窗口并重新运行调试入口。", TextWrapping = TextWrapping.Wrap,
-            Foreground = Palette.Brush(108,115,122), FontSize = 12, Margin = new Thickness(0, 18, 0, 0) });
+            Foreground = Palette.Brush(108,115,122), FontSize = 12, Margin = new Thickness(0, 16, 0, 0) });
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         session.Changed += Refresh; Closed += (_, _) => session.Changed -= Refresh;
     }
     void Refresh() { _status.Text = _session.Status; _pause.Content = _session.Paused ? "继续" : "暂停 / 继续"; }
     static Button ActionButton(string label, Action action)
     {
-        var button = new Button { Content = label, Padding = new Thickness(14, 9, 14, 9), Margin = new Thickness(0, 0, 8, 8),
+        var button = new Button { Style = Application.Current.TryFindResource("WinButton") as Style, Content = label, Padding = new Thickness(14, 9, 14, 9), Margin = new Thickness(0, 0, 8, 8),
             HorizontalContentAlignment = HorizontalAlignment.Left, Cursor = System.Windows.Input.Cursors.Hand };
         button.Click += (_, _) => action(); return button;
     }

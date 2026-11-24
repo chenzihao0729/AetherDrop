@@ -1,4 +1,4 @@
-; nekodrop-wlan.inf: the Intel Wi-Fi 6 AX201 family as a Windows Wi-Fi adapter
+; AetherDrop-wlan.inf: the Intel Wi-Fi 6 AX201 family as a Windows Wi-Fi adapter
 ; (WiFiCx) that also runs AWDL for AirDrop. Replaces Intel's driver for the
 ; card while installed; Intel's package stays in the driver store.
 
@@ -7,7 +7,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Net
 ClassGuid   = {4d36e972-e325-11ce-bfc1-08002be10318}
 Provider    = %Provider%
-CatalogFile = nekodrop-wlan.cat
+CatalogFile = AetherDrop-wlan.cat
 DriverVer   = 11/17/2026,0.2.0.0
 PnpLockdown = 1
 
@@ -19,7 +19,7 @@ Firmware_Copy  = 13
 1 = %DiskName%,,,""
 
 [SourceDisksFiles]
-nekodrop-wlan.sys = 1,,
+AetherDrop-wlan.sys = 1,,
 iwlwifi-QuZ-a0-hr-b0-68.ucode = 1,,
 iwlwifi-Qu-b0-hr-b0-68.ucode = 1,,
 iwlwifi-Qu-c0-hr-b0-68.ucode = 1,,
@@ -46,7 +46,7 @@ AddReg             = Neko.reg
 *PhysicalMediaType = 9      ; NdisPhysicalMediumNative802_11
 
 [Driver_Copy]
-nekodrop-wlan.sys
+AetherDrop-wlan.sys
 
 [Firmware_Copy]
 iwlwifi-QuZ-a0-hr-b0-68.ucode
@@ -62,23 +62,23 @@ HKR, "Interrupt Management\MessageSignaledInterruptProperties", MSISupported,   
 HKR, "Interrupt Management\MessageSignaledInterruptProperties", MessageNumberLimit, 0x00010001, 1
 
 [Neko_Device.ndi.NT.Services]
-AddService = nekodrop-wlan, 0x00000002, Neko_Service
+AddService = AetherDrop-wlan, 0x00000002, Neko_Service
 
 [Neko_Service]
 DisplayName   = %Service.Desc%
 ServiceType   = 1   ; SERVICE_KERNEL_DRIVER
 StartType     = 3   ; SERVICE_DEMAND_START
 ErrorControl  = 1   ; SERVICE_ERROR_NORMAL
-ServiceBinary = %13%\nekodrop-wlan.sys
+ServiceBinary = %13%\AetherDrop-wlan.sys
 
 [Neko_Device.ndi.NT.Wdf]
-KmdfService = nekodrop-wlan, Neko_Wdf
+KmdfService = AetherDrop-wlan, Neko_Wdf
 
 [Neko_Wdf]
 KmdfLibraryVersion = 1.33
 
 [Neko.reg]
-HKR, Ndi,            Service,    0, "nekodrop-wlan"
+HKR, Ndi,            Service,    0, "AetherDrop-wlan"
 HKR, Ndi\Interfaces, UpperRange, 0, "ndis5"
 HKR, Ndi\Interfaces, LowerRange, 0, "wlan,ethernet"
 HKR, NetworkInterface, *IfConnectorPresent, 0x00010001, 1
@@ -91,7 +91,7 @@ HKR, , NumberOfNetworkInterfaces, 0x00010001, 5
 HKR, , DataFormat, 0x00010001, 0
 
 [Strings]
-Provider         = "nekodrop project"
-DiskName         = "nekodrop driver"
-Ax201.DeviceDesc = "Intel Wi-Fi 6 AX201 (nekodrop, Wi-Fi + AirDrop)"
-Service.Desc     = "nekodrop Wi-Fi and AWDL driver"
+Provider         = "AetherDrop project"
+DiskName         = "AetherDrop driver"
+Ax201.DeviceDesc = "Intel Wi-Fi 6 AX201 (AetherDrop, Wi-Fi + AirDrop)"
+Service.Desc     = "AetherDrop Wi-Fi and AWDL driver"

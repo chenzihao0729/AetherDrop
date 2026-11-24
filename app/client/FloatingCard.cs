@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,13 +8,14 @@ using System.Windows.Media.Effects;
 using System.Windows.Interop;
 using System.Text;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>Shared floating card chrome and motion. Coordinates use the target monitor's work area.</summary>
 public abstract class FloatingCard : Window
 {
     protected readonly Grid Surface;
     protected readonly Border Card;
+    protected readonly Border Shadow;
     protected readonly Grid Body = new();
     protected static Brush Ink => Palette.Brush(28, 32, 36);
     protected static Brush Muted => Palette.Brush(108, 115, 122);
@@ -34,25 +35,30 @@ public abstract class FloatingCard : Window
         Surface = new Grid { Width = width, Height = height };
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true; Background = Brushes.Transparent;
+        Typography.Apply(this);
         ShowInTaskbar = false; Topmost = true; ShowActivated = false;
         WindowStartupLocation = WindowStartupLocation.Manual;
         FontFamily = Typography.Regular;
         Foreground = Ink; FontSize = 10; Icon = Branding.WindowIcon;
         Card = new Border
         {
+            // Keep layout/text pixel-aligned, but let curved chrome retain subpixel coverage.
+            SnapsToDevicePixels = false,
             Margin = new Thickness(10), Padding = new Thickness(15), CornerRadius = new CornerRadius(13),
-            BorderBrush = new SolidColorBrush(Palette.Dark ? Palette.Color(197,209,220) : Color.FromArgb(65, 128, 142, 152)), BorderThickness = new Thickness(1),
-            Background = new LinearGradientBrush(Palette.Color(253, 254, 255), Palette.Color(245, 250, 252), 90),
+            BorderBrush = Palette.SemanticBrush("Border"), BorderThickness = new Thickness(1),
+            Background = Palette.Brush(253, 254, 255),
             Child = Body,
         };
         // Shadow is a separate sibling. Putting an Effect above the text would
         // rasterize the whole card and soften glyphs, even without a Viewbox.
-        Surface.Children.Add(new Border
+        Shadow = new Border
         {
+            SnapsToDevicePixels = false,
             Margin = Card.Margin, CornerRadius = Card.CornerRadius, Background = Card.Background,
             IsHitTestVisible = false,
             Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 3, Opacity = .16, Color = Colors.Black },
-        });
+        };
+        Surface.Children.Add(Shadow);
         Surface.Children.Add(Card);
         Content = Surface;
     }
@@ -66,7 +72,7 @@ public abstract class FloatingCard : Window
     {
         var b = new FloatingButton { Content = text, Height = 26, MinWidth = 64, Padding = new Thickness(10, 0, 10, 0),
             Cursor = System.Windows.Input.Cursors.Hand, FontSize = 11, FontFamily = Typography.Regular, FontWeight = Typography.EmphasisWeight,
-            Foreground = primary ? Brushes.White : Ink, Background = primary ? Blue : Brushes.Transparent,
+            Foreground = primary ? Palette.SemanticBrush("OnAccent") : Ink, Background = primary ? Blue : Brushes.Transparent,
             BorderBrush = primary ? Blue : Palette.Brush(194, 201, 208), BorderThickness = new Thickness(1) };
         var template = new ControlTemplate(typeof(Button));
         var root = new FrameworkElementFactory(typeof(Grid));

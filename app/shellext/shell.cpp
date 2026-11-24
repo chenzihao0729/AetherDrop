@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// nekodrop's entry in the Windows 11 Explorer context menu ("用 AetherDrop 发送"
+// AetherDrop's entry in the Windows 11 Explorer context menu ("用 AetherDrop 发送"
 // on the first level, not under "Show more options"). Windows 11 only shows
 // verbs from packaged apps there, so this IExplorerCommand is declared by a
 // sparse package (installer\sparse\AppxManifest.xml) whose external location
@@ -29,13 +29,13 @@ static std::wstring folder()
 
 static std::wstring exe() { return folder() + L"\\AetherDrop.exe"; }
 
-// The client's language choice (HKCU\Software\nekodrop, Language = zh | en),
+// The client's language choice (HKCU\Software\AetherDrop, Language = zh | en),
 // else the Windows display language.
 static bool chinese()
 {
     wchar_t v[8] = {};
     DWORD size = sizeof v;
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\nekodrop", L"Language", RRF_RT_REG_SZ, nullptr, v, &size) == ERROR_SUCCESS)
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\AetherDrop", L"Language", RRF_RT_REG_SZ, nullptr, v, &size) == ERROR_SUCCESS)
         return v[0] == L'z';
     return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE;
 }

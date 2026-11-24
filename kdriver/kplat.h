@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Kernel side of plat.h: what the shared hardware sources see when built
- * into nekodrop-wlan.sys (NEKO_KERNEL). */
+ * into AetherDrop-wlan.sys (NEKO_KERNEL). */
 #pragma once
 
 #include <ntddk.h>
@@ -17,4 +17,4 @@ struct NekoCard {
 extern NekoCard g_neko_card;
 
 /* Where the driver keeps the iwlwifi firmware files. */
-#define NEKO_FIRMWARE_DIR "\\SystemRoot\\System32\\drivers\\nekodrop"
+#define NEKO_FIRMWARE_DIR "\\SystemRoot\\System32\\drivers\\AetherDrop"

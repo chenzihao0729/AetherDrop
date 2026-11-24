@@ -8,7 +8,7 @@ $dotnetExe = Join-Path $sdkDir 'dotnet.exe'
 if (-not (Test-Path -LiteralPath $dotnetExe)) { throw '.NET SDK is missing. Install .NET 8 SDK first.' }
 $env:DOTNET_ROOT = $sdkDir
 $env:DOTNET_ROOT_X64 = $sdkDir
-$project = Join-Path $repoDir 'app\client\NekoDrop.csproj'
+$project = Join-Path $repoDir 'app\client\AetherDrop.csproj'
 if ($Watch) {
     $env:DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER = '1'
     & $dotnetExe watch --project $project run --configuration Debug --no-launch-profile -- --ui-debug --lang $Language

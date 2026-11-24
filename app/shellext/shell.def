@@ -1,4 +1,4 @@
-LIBRARY nekodrop-shell
+LIBRARY AetherDrop-shell
 EXPORTS
     DllGetClassObject PRIVATE
     DllCanUnloadNow PRIVATE

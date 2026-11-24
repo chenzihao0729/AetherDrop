@@ -8,11 +8,11 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>
 /// Software update from the project's GitHub releases: finds a newer
-/// nekodrop-X.Y.Z-setup.exe, downloads it, checks its SHA-256 against the
+/// AetherDrop-X.Y.Z-setup.exe, downloads it, checks its SHA-256 against the
 /// digest GitHub publishes for the asset, and runs it (Windows asks for
 /// administrator rights). Nothing installs without the user choosing to.
 /// </summary>
@@ -20,10 +20,10 @@ public static class Updater
 {
     // Enable only after configuring an AetherDrop release feed.
     public static bool Enabled => false;
-    const string ReleasesApi = "https://api.github.com/repos/zheznanohana/nekodrop/releases?per_page=15";
-    const string ReleasesAtom = "https://github.com/zheznanohana/nekodrop/releases.atom";
-    const string TagUrlPrefix = "https://github.com/zheznanohana/nekodrop/releases/tag/";
-    public const string ReleasesPage = "https://github.com/zheznanohana/nekodrop/releases";
+    const string ReleasesApi = "https://api.github.com/repos/chenzihao0729/AetherDrop/releases?per_page=15";
+    const string ReleasesAtom = "https://github.com/chenzihao0729/AetherDrop/releases.atom";
+    const string TagUrlPrefix = "https://github.com/chenzihao0729/AetherDrop/releases/tag/";
+    public const string ReleasesPage = "https://github.com/chenzihao0729/AetherDrop/releases";
 
     public enum CheckStatus { UpToDate, Available, RateLimited, Failed }
 
@@ -41,13 +41,13 @@ public static class Updater
     static HttpClient MakeClient()
     {
         var c = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("nekodrop-updater");
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("AetherDrop-updater");
         c.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return c;
     }
 
     static string CachePath =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "nekodrop", "update-cache.json");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AetherDrop", "update-cache.json");
 
     static (string? Etag, string? Json) ReadCache()
     {
@@ -86,11 +86,11 @@ public static class Updater
             {
                 var name = (string?)a?["name"] ?? "";
                 var digest = (string?)a?["digest"] ?? "";
-                if (!name.StartsWith("nekodrop-", StringComparison.Ordinal) || !name.EndsWith("-setup.exe", StringComparison.Ordinal)) continue;
+                if (!name.StartsWith("AetherDrop-", StringComparison.Ordinal) || !name.EndsWith("-setup.exe", StringComparison.Ordinal)) continue;
                 // An installer without a published digest is never run.
                 if (!digest.StartsWith("sha256:", StringComparison.Ordinal)) continue;
                 var url = (string?)a?["browser_download_url"] ?? "";
-                if (!url.StartsWith("https://github.com/zheznanohana/nekodrop/releases/download/", StringComparison.Ordinal)) continue;
+                if (!url.StartsWith("https://github.com/chenzihao0729/AetherDrop/releases/download/", StringComparison.Ordinal)) continue;
                 if (best is null || v > best.Version)
                     best = new Release(v, tag, url, digest["sha256:".Length..].ToLowerInvariant(), preview, (string?)r["html_url"] ?? "");
             }
@@ -205,11 +205,11 @@ public static class Updater
     public static async Task<Release?> FindNewer(bool includePreview) => (await Check(includePreview)).Release;
 
     /// <summary>Downloads, verifies and starts the installer. Returns "" or why not.</summary>
-    public static async Task<string> Install(Release r, IProgress<int>? progress = null)
+    public static async Task<string> Install(Release r, IProgress<int>? progress = null, bool deleteAfterInstall = true)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "nekodrop-update");
+        var dir = Path.Combine(Path.GetTempPath(), "AetherDrop-update");
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, $"nekodrop-{r.Version}-setup.exe");
+        var path = Path.Combine(dir, $"AetherDrop-{r.Version}-setup.exe");
         using (var resp = await Http.GetAsync(r.Url, HttpCompletionOption.ResponseHeadersRead))
         {
             resp.EnsureSuccessStatusCode();
@@ -235,7 +235,68 @@ public static class Updater
             return "the download does not match the published SHA-256";
         }
         // The installer closes this app itself (CloseApplications) and starts it again afterwards.
-        Process.Start(new ProcessStartInfo(path, "/SILENT /NORESTART") { UseShellExecute = true });
+        StartInstaller(path, deleteAfterInstall);
         return "";
     }
+
+    /// <summary>
+    /// Starts the installer. With deleteAfterInstall, a detached PowerShell helper
+    /// waits for the installer and removes the setup file only after a successful
+    /// exit. The app is closed by the installer itself, so the helper must live
+    /// outside this process.
+    /// </summary>
+    static void StartInstaller(string path, bool deleteAfterInstall)
+    {
+        if (!deleteAfterInstall)
+        {
+            Process.Start(new ProcessStartInfo(path, "/SILENT /NORESTART") { UseShellExecute = true });
+            return;
+        }
+
+        string? helper = null;
+        try
+        {
+            helper = Path.Combine(Path.GetDirectoryName(path)!, $"{Path.GetFileNameWithoutExtension(path)}-cleanup.ps1");
+            File.WriteAllText(helper, CleanupScript);
+            var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+            var psi = new ProcessStartInfo(powershell)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+            };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-NonInteractive");
+            psi.ArgumentList.Add("-ExecutionPolicy");
+            psi.ArgumentList.Add("Bypass");
+            psi.ArgumentList.Add("-File");
+            psi.ArgumentList.Add(helper);
+            psi.ArgumentList.Add("-Installer");
+            psi.ArgumentList.Add(path);
+            Process.Start(psi);
+        }
+        catch (Exception)
+        {
+            // If the helper cannot start, still run the update; leaving the file is
+            // better than blocking the installation.
+            if (helper is not null)
+            {
+                try { File.Delete(helper); } catch (Exception) { }
+            }
+            Process.Start(new ProcessStartInfo(path, "/SILENT /NORESTART") { UseShellExecute = true });
+        }
+    }
+
+    const string CleanupScript = """
+param([Parameter(Mandatory = $true)][string]$Installer)
+$ErrorActionPreference = 'SilentlyContinue'
+try {
+    $p = Start-Process -FilePath $Installer -ArgumentList '/SILENT', '/NORESTART' -PassThru -ErrorAction Stop
+    if ($p.WaitForExit(1800000) -and $p.ExitCode -eq 0) {
+        Remove-Item -LiteralPath $Installer -Force
+    }
+} catch {
+}
+Remove-Item -LiteralPath $PSCommandPath -Force
+""";
 }

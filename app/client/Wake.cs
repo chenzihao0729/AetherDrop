@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 using Windows.Devices.Bluetooth.Advertisement;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>
 /// On-demand mode: an iPhone that opens its AirDrop sheet advertises over

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,7 +7,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 public sealed class ReceiveWindow : FloatingCard
 {
@@ -23,9 +23,9 @@ public sealed class ReceiveWindow : FloatingCard
     readonly FrameworkElement _deviceGlyph;
     readonly Grid _illustration;
     readonly System.Windows.Shapes.Path _completedGlyph;
-    readonly Button _close;
+    readonly Grid _stoppedGlyph;
     readonly Button _openLocation;
-    readonly DispatcherTimer _speedTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    readonly DispatcherTimer _speedTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
     DispatcherTimer? _finishTimer;
     readonly Grid _detail;
     readonly Grid _footer = new() { Height = FooterHeight, VerticalAlignment = VerticalAlignment.Bottom };
@@ -36,7 +36,7 @@ public sealed class ReceiveWindow : FloatingCard
     double _lastBytes, _latestBytes, _lastTime;
     bool _transferring;
     double _destination;
-    bool _accepted, _finished, _hidden;
+    bool _accepted, _finished;
     public string RequestId => _request.Id;
     public ReceiveWindow(Request request, Action<string, bool> answer, Action<string>? openFolder = null) : base(302, 142)
     {
@@ -72,6 +72,18 @@ public sealed class ReceiveWindow : FloatingCard
             Visibility = Visibility.Collapsed,
         };
         illustration.Children.Add(_completedGlyph);
+        _stoppedGlyph = new Grid
+        {
+            Width = 28, Height = 28, HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed,
+        };
+        foreach (var line in new[] { "M 5,5 L 23,23", "M 23,5 L 5,23" })
+            _stoppedGlyph.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse(line), Stroke = Palette.SemanticBrush("StoppedMark"),
+                StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            });
+        illustration.Children.Add(_stoppedGlyph);
         Body.Children.Add(illustration);
         // Fixed slots keep all three positions identical across states,
         // regardless of the current footer's font size or button height.
@@ -99,17 +111,21 @@ public sealed class ReceiveWindow : FloatingCard
         _rate = Label("", RateFontSize, true); _rate.Height = _rate.LineHeight = FooterHeight; _rate.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; _rate.VerticalAlignment = VerticalAlignment.Bottom; _rate.Visibility = Visibility.Collapsed; _footer.Children.Add(_rate);
         _percent = Label("", 12, false, Muted); _percent.VerticalAlignment = VerticalAlignment.Bottom; _percent.Visibility = Visibility.Collapsed; _footer.Children.Add(_percent);
         Grid.SetColumn(_detail, 1); Body.Children.Add(_detail);
-        var close = _close = CloseButton(() => { if (!_accepted && !_finished) _answer(request.Id, false); else { _hidden = true; Dismiss(); } }); Grid.SetColumn(close, 1); Body.Children.Add(close);
         _speedTimer.Tick += (_, _) => SampleSpeed();
         Closed += (_, _) =>
         {
             _speedTimer.Stop(); _finishTimer?.Stop();
-            foreach (var element in new FrameworkElement[] { _heading, _sender, _footer, _deviceGlyph, _ring, _close, _completedGlyph })
+            foreach (var element in new FrameworkElement[] { _heading, _sender, _footer, _deviceGlyph, _ring, _completedGlyph, _stoppedGlyph })
             {
                 element.BeginAnimation(OpacityProperty, null);
                 if (element.RenderTransform is TranslateTransform offset) offset.BeginAnimation(TranslateTransform.YProperty, null);
             }
             _completedGlyph.BeginAnimation(System.Windows.Shapes.Shape.StrokeDashOffsetProperty, null);
+            foreach (System.Windows.Shapes.Path stroke in _stoppedGlyph.Children)
+            {
+                stroke.BeginAnimation(OpacityProperty, null);
+                stroke.BeginAnimation(System.Windows.Shapes.Shape.StrokeDashOffsetProperty, null);
+            }
         };
     }
     static Button FooterButton(string text, Action action, bool primary = false, int widthUnits = 1)
@@ -206,20 +222,21 @@ public sealed class ReceiveWindow : FloatingCard
     }
     public void Finish(bool success, string detail, string? savedFolder = null)
     {
-        if (_hidden || Dismissing || _finished) return; _finished = true;
+        if (Dismissing || _finished) return; _finished = true;
         _speedTimer.Stop(); _clock.Stop();
         bool transition = _accepted && IsVisible && Motion;
         ReplaceSlot(_heading, () => _heading.Text = success
-            ? Text("接收完成", "Received") : Text("接收已结束", "Transfer ended"), transition, 0);
+            ? Text("接收完成", "Received") : Text("接收已停止", "Transfer stopped"), transition, 0);
         ReplaceSlot(_footer, () =>
         {
             _actions.Visibility = _rate.Visibility = Visibility.Collapsed;
             _openLocation.Visibility = success ? Visibility.Visible : Visibility.Collapsed;
             _percent.Visibility = success ? Visibility.Collapsed : Visibility.Visible;
             _percent.Text = success ? "" : Text("连接中断", "Connection interrupted");
-            _percent.FontSize = 14; _percent.FontWeight = Typography.EmphasisWeight;
+            _percent.FontSize = 16; _percent.FontWeight = Typography.EmphasisWeight;
         }, transition, .10);
         FadeAway(_ring, transition);
+        FadeAway(_deviceGlyph, transition);
         if (success)
         {
             _savedFolder = savedFolder;
@@ -228,7 +245,6 @@ public sealed class ReceiveWindow : FloatingCard
             {
                 _sender.Text = Text("已保存到本地", "Saved locally");
             }, transition, .05);
-            FadeAway(_deviceGlyph, transition); FadeAway(_close, transition);
             _completedGlyph.Visibility = Visibility.Visible;
             if (transition)
             {
@@ -247,6 +263,32 @@ public sealed class ReceiveWindow : FloatingCard
                 reveal.FillBehavior = FillBehavior.HoldEnd;
                 reveal.Completed += (_, _) => { _completedGlyph.Opacity = 1; _completedGlyph.BeginAnimation(OpacityProperty, null); };
                 _completedGlyph.BeginAnimation(OpacityProperty, reveal);
+            }
+        }
+        else
+        {
+            _stoppedGlyph.Visibility = Visibility.Visible;
+            if (transition)
+            {
+                for (var index = 0; index < _stoppedGlyph.Children.Count; index++)
+                {
+                    var stroke = (System.Windows.Shapes.Path)_stoppedGlyph.Children[index];
+                    stroke.Opacity = 0; stroke.StrokeDashArray = new DoubleCollection { 10, 10 };
+                    stroke.StrokeDashOffset = 10;
+                    var draw = Animate(10, 0, .18); draw.BeginTime = TimeSpan.FromSeconds(.08 + index * .10);
+                    draw.FillBehavior = FillBehavior.HoldEnd;
+                    draw.Completed += (_, _) =>
+                    {
+                        stroke.StrokeDashOffset = 0;
+                        stroke.BeginAnimation(System.Windows.Shapes.Shape.StrokeDashOffsetProperty, null);
+                        stroke.ClearValue(System.Windows.Shapes.Shape.StrokeDashArrayProperty);
+                    };
+                    var reveal = Animate(0, 1, .10); reveal.BeginTime = draw.BeginTime;
+                    reveal.FillBehavior = FillBehavior.HoldEnd;
+                    reveal.Completed += (_, _) => { stroke.Opacity = 1; stroke.BeginAnimation(OpacityProperty, null); };
+                    stroke.BeginAnimation(OpacityProperty, reveal);
+                    stroke.BeginAnimation(System.Windows.Shapes.Shape.StrokeDashOffsetProperty, draw);
+                }
             }
         }
         var timer = _finishTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds((success ? 4 : 5) + (transition ? .4 : 0)) };

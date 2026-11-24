@@ -6,5 +6,5 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained><Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../app/client/NekoDrop.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../../app/client/AetherDrop.csproj" /></ItemGroup>
 </Project>

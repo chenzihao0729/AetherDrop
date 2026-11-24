@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * nekodrop-wlan: the AX201 as a Windows Wi-Fi adapter (WiFiCx) that also runs
+ * AetherDrop-wlan: the AX201 as a Windows Wi-Fi adapter (WiFiCx) that also runs
  * AWDL for AirDrop. See docs/KERNEL.md.
  *
  * This file: driver and device creation. WiFiCx owns the NetAdapter and the

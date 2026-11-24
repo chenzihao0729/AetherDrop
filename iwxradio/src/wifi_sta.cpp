@@ -15,7 +15,6 @@
 
 #include "awdl_policy.h"
 #include "crypto.h"
-#include "iwxreg.h"
 
 namespace {
 
@@ -74,7 +73,7 @@ uint16_t be16(const uint8_t *p) { return static_cast<uint16_t>(p[0] << 8 | p[1])
 uint16_t le16(const uint8_t *p) { return static_cast<uint16_t>(p[0] | p[1] << 8); }
 
 /* CCMP pairwise and group with one AKM; RSN capabilities MFPC/MFPR when
- * management frames are protected. AKM 2 without PMF is the bytes nekodrop
+ * management frames are protected. AKM 2 without PMF is the bytes AetherDrop
  * always sent. */
 std::vector<uint8_t> build_rsn_ie(uint8_t akm, bool pmf) {
   const uint8_t caps = pmf ? 0xc0 : 0x00; /* MFPR | MFPC */
@@ -332,6 +331,10 @@ void WifiStation::learn_beacon(const uint8_t *f, size_t len) {
   _beacon_int = le16(f + 32);
   _ap_capab = le16(f + 34);
   _ap_rsn = _ap_ht = _ap_vht = _ap_2ss = false;
+  _ap_ht_cap = 0;
+  _ap_ampdu = 0;
+  _ap_vht_cap = 0;
+  _ap_vht_mcs = 0xffff;
   _ap_pairwise_ccmp = _ap_bip_cmac = true;
   _ap_mfpc = _ap_mfpr = _ap_h2e_only = false;
   _ap_akms = 0;
@@ -372,10 +375,14 @@ void WifiStation::learn_beacon(const uint8_t *f, size_t len) {
     } else if (id == 45 && n >= 26) {
       _ap_ht = true;
       _ap_2ss = v[4] != 0; /* MCS 8-15 supported */
+      _ap_ht_cap = le16(v);
+      _ap_ampdu = v[2];
     } else if (id == 61 && n >= 2) {
       if (v[1] & 0x03) _ap_width = 40; /* secondary channel offset */
     } else if (id == 191 && n >= 12) {
       _ap_vht = true;
+      _ap_vht_cap = static_cast<uint32_t>(le16(v)) | static_cast<uint32_t>(le16(v + 2)) << 16;
+      _ap_vht_mcs = le16(v + 4);
     } else if (id == 192 && n >= 1) {
       if (v[0] >= 1) _ap_width = 80;
     }
@@ -402,6 +409,25 @@ void WifiStation::learn_beacon(const uint8_t *f, size_t len) {
     _log(std::string("station: beacon heard: ") + sec +
          (_ap_ht ? ", HT" : "") + (_ap_vht ? ", VHT" : "") + ", " + std::to_string(_ap_width) + " MHz");
   }
+}
+
+/* A probe request to the AP alone (its BSSID and SSID): the answer carries
+ * what a beacon does, and a radio that hears unicast frames better than
+ * broadcasts (the MT7902 beside AWDL) gets it where beacons go unheard. */
+void WifiStation::send_probe() {
+  std::vector<uint8_t> f(24, 0);
+  f[0] = 0x40;
+  std::memcpy(&f[4], _cfg.bssid, 6);
+  std::memcpy(&f[10], _addr.data(), 6);
+  std::memcpy(&f[16], _cfg.bssid, 6);
+  f[22] = static_cast<uint8_t>(++_mgmt_seq << 4);
+  f[23] = static_cast<uint8_t>(_mgmt_seq >> 4);
+  f.push_back(0);
+  f.push_back(static_cast<uint8_t>(_cfg.ssid.size()));
+  f.insert(f.end(), _cfg.ssid.begin(), _cfg.ssid.end());
+  const uint8_t rates[10] = {1, 8, 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c}; /* 6-54 Mb/s */
+  f.insert(f.end(), rates, rates + sizeof(rates));
+  _dev.sta_transmit(f.data(), f.size(), mgmt_rate(), false);
 }
 
 void WifiStation::send_auth() {
@@ -562,7 +588,7 @@ void WifiStation::handle_mgmt(const RxFrame &in) {
   if (in.data[1] & 0x40) {
     /* A protected management frame (PMF): the firmware decrypted it and left
      * the CCMP header in place, as for data. Read it without. */
-    constexpr uint16_t ok = IWX_RX_MPDU_RES_STATUS_DEC_DONE | IWX_RX_MPDU_RES_STATUS_MIC_OK;
+    constexpr uint16_t ok = kStaRxDecDone | kStaRxMicOk;
     if (!_pmf || (in.status & ok) != ok || in.len < 24 + 8) return;
     const size_t end = in.len - (in.mic_stripped ? 0 : 8);
     if (end < 24 + 8) return;
@@ -612,6 +638,10 @@ void WifiStation::handle_mgmt(const RxFrame &in) {
     p.mimo = _ap_2ss;
     p.width = width;
     p.beacon_int = _beacon_int;
+    p.ap_ht_cap = _ap_ht_cap;
+    p.ap_ampdu = _ap_ampdu;
+    p.ap_vht_cap = _ap_vht_cap;
+    p.ap_vht_mcs = _ap_vht_mcs;
     _dev.sta_join_update(p);
     if (!_dev.sta_associated(aid, _dtim)) return fail("the firmware refused the association");
     _dev.sta_rate_control();
@@ -726,8 +756,8 @@ void WifiStation::handle_data(const RxFrame &f) {
   const bool encrypted = (flags & 0x40) != 0;
   if (encrypted) {
     /* Protected: the firmware decrypted it, or it is dropped. */
-    if ((f.status & (IWX_RX_MPDU_RES_STATUS_DEC_DONE | IWX_RX_MPDU_RES_STATUS_MIC_OK)) !=
-        (IWX_RX_MPDU_RES_STATUS_DEC_DONE | IWX_RX_MPDU_RES_STATUS_MIC_OK)) {
+    if ((f.status & (kStaRxDecDone | kStaRxMicOk)) !=
+        (kStaRxDecDone | kStaRxMicOk)) {
       if (_rx.undecrypted++ < 5) {
         char b[96];
         std::snprintf(b, sizeof(b), "station: frame not decrypted (status 0x%04x, %zu bytes)", f.status, f.len);
@@ -1135,8 +1165,15 @@ void WifiStation::tick(uint64_t now_us) {
   }
   switch (_state) {
   case State::Listening:
-    /* A beacon tells us the AP's capabilities; after 1.5 s go anyway. */
-    if (_beacon_seen || now_us - _state_since > 1500000) {
+    /* A beacon tells us the AP's capabilities (without one the association
+     * asks for neither HT nor VHT: 54 Mb/s at most), or the answer to a
+     * probe, asked every 300 ms; after 3 s go anyway. */
+    if (!_beacon_seen && _cfg.channel > 14 && now_us - _state_since > 300000 &&
+        (!_last_try || now_us - _last_try > 300000)) {
+      _last_try = now_us;
+      send_probe();
+    }
+    if (_beacon_seen || now_us - _state_since > 3000000) {
       if (!_cfg.open && _beacon_seen && !_ap_rsn && (_ap_capab & 0x10)) {
         fail("the network is not WPA2/WPA3 with CCMP (WEP and TKIP are not supported)");
         return;

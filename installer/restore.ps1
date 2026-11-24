@@ -1,13 +1,13 @@
-# One-click rollback: puts the PC's Wi-Fi back the way Windows had it, whatever
-# state nekodrop left it in (service running or crashed, card held by the
-# register proxy or by the shelved kernel driver). Needs nothing from nekodrop
-# itself, so it also works when nekodrop's own files are broken or deleted.
-#   1. stops nekodrop and turns its service off (it would take the card again)
+﻿# One-click rollback: puts the PC's Wi-Fi back the way Windows had it, whatever
+# state AetherDrop left it in (service running or crashed, card held by the
+# register proxy or by the shelved kernel driver). Needs nothing from AetherDrop
+# itself, so it also works when AetherDrop's own files are broken or deleted.
+#   1. stops AetherDrop and turns its service off (it would take the card again)
 #   2. binds the card vendor's driver again (the package Windows used before)
-#   3. removes nekodrop's driver packages from the driver store
-#   4. adds back saved Wi-Fi networks Windows lost (from nekodrop's backup)
-#   5. turns the "nekodrop" TAP adapter off and makes sure WLAN AutoConfig runs
-# nekodrop stays installed; run the installer again to use it, or
+#   3. removes AetherDrop's driver packages from the driver store
+#   4. adds back saved Wi-Fi networks Windows lost (from AetherDrop's backup)
+#   5. turns the "AetherDrop" TAP adapter off and makes sure WLAN AutoConfig runs
+# AetherDrop stays installed; run the installer again to use it, or
 # -Uninstall to remove it completely afterwards.
 # -SelfTest checks target card resolution and vendor driver-package selection
 # against made-up devices and exits 0 (all pass) or 1; it needs no
@@ -17,18 +17,18 @@
 # is checked while the script is parsed, before param(), so -SelfTest could not
 # run on a build machine without them. The same check is made below instead,
 # before anything is written.
-# Log: %ProgramData%\nekodrop\restore.log
+# Log: %ProgramData%\AetherDrop\restore.log
 param([switch]$Uninstall, [switch]$SelfTest)
 $ErrorActionPreference = 'Continue'
 
 # ------------------------------------------------ standalone vendor rollback data
-# Self-contained (never reads %ProgramFiles%\nekodrop). Keep $SupportedIntelIds
+# Self-contained (never reads %ProgramFiles%\AetherDrop). Keep $SupportedIntelIds
 # in step with iwxradio/src/cards.h, app/service/CardCatalog.cs,
 # driver/regproxy/winawdl_regproxy.inf, installer/report.ps1 and install.ps1.
 $SupportedIntelIds = @('43F0', 'A0F0', '02F0', '06F0', '34F0', '3DF0', '4DF0', '2723', '2725', '7A70', '7AF0', '51F0', '51F1', '54F0', '7F70')
-$KnownCatalogIds = @($SupportedIntelIds | ForEach-Object { "8086:$_" }) + @('10EC:C852')
-$ProxyInfNames = @('winawdl_regproxy.inf', 'nekodrop-wlan.inf')
-$ProxyServices = @('WUDFRd', 'nekodrop-wlan')
+$KnownCatalogIds = @($SupportedIntelIds | ForEach-Object { "8086:$_" }) + @('8086:272B', '10EC:C852')
+$ProxyInfNames = @('winawdl_regproxy.inf', 'AetherDrop-wlan.inf', 'nekodrop-wlan.inf')
+$ProxyServices = @('WUDFRd', 'AetherDrop-wlan', 'nekodrop-wlan')
 $ProxyProvider = 'winairdrop project'
 $VendorProfiles = @{
   '8086' = @{ Name = 'Intel';            ProviderPatterns = @('Intel', 'Killer', 'Rivet Networks'); DownloadHint = 'intel.com or Windows Update' }
@@ -74,7 +74,7 @@ function Get-VendorProfile([string]$VendorId) {
   }
 }
 
-function Get-NekodropPublishedInfs($StoreDrivers) {
+function Get-AetherDropPublishedInfs($StoreDrivers) {
   $seen = @{}
   $out = @()
   foreach ($d in @($StoreDrivers | Where-Object { $_ })) {
@@ -91,12 +91,12 @@ function Get-NekodropPublishedInfs($StoreDrivers) {
   return @($out)
 }
 
-function Test-NekodropInfContent([string]$Content) {
+function Test-AetherDropInfContent([string]$Content) {
   if (-not $Content) { return $false }
-  return ($Content -match '(?i)winawdl_regproxy|nekodrop-wlan|winairdrop project')
+  return ($Content -match '(?i)winawdl_regproxy|AetherDrop-wlan|nekodrop-wlan|winairdrop project')
 }
 
-function Test-DeviceBoundToNekodrop($Device, [string[]]$NekodropPublishedInfs) {
+function Test-DeviceBoundToAetherDrop($Device, [string[]]$AetherDropPublishedInfs) {
   if (-not $Device) { return $false }
   $svc = "$($Device.Service)".Trim()
   if ($svc -and ($ProxyServices -notcontains $svc)) { return $false }
@@ -105,22 +105,22 @@ function Test-DeviceBoundToNekodrop($Device, [string[]]$NekodropPublishedInfs) {
   $isOurInf = $false
   if ($inf) {
     if ($ProxyInfNames -contains $inf) { $isOurInf = $true }
-    elseif ($NekodropPublishedInfs -and ($NekodropPublishedInfs -contains $inf)) { $isOurInf = $true }
+    elseif ($AetherDropPublishedInfs -and ($AetherDropPublishedInfs -contains $inf)) { $isOurInf = $true }
   }
   $isOurProvider = ($prov -and ($prov -eq $ProxyProvider))
   return ($isOurInf -or $isOurProvider)
 }
 
 # Picks the PCI Wi-Fi card to restore:
-#   1. any present PCI device currently bound to nekodrop's proxy or kernel
-#      driver (WUDFRd / nekodrop-wlan AND our published INF or provider, never
+#   1. any present PCI device currently bound to AetherDrop's proxy or kernel
+#      driver (WUDFRd / AetherDrop-wlan AND our published INF or provider, never
 #      unrelated UMDF devices such as sensors or HID);
 #   2. else any of the 15 supported Intel PCI IDs (identical to earlier builds);
 #   3. else any other known catalog PCI ID (such as Realtek 10EC:C852).
-function Resolve-RestoreTargetDevice($Devices, [string[]]$NekodropPublishedInfs = @()) {
+function Resolve-RestoreTargetDevice($Devices, [string[]]$AetherDropPublishedInfs = @()) {
   $pciDevs = @($Devices | Where-Object { $_ -and (Get-PciVendorDevice $_.InstanceId) })
   foreach ($d in $pciDevs) {
-    if (Test-DeviceBoundToNekodrop $d $NekodropPublishedInfs) { return $d }
+    if (Test-DeviceBoundToAetherDrop $d $AetherDropPublishedInfs) { return $d }
   }
   foreach ($d in $pciDevs) {
     $pci = Get-PciVendorDevice $d.InstanceId
@@ -166,9 +166,9 @@ function Parse-DriverVersion([string]$VersionText) {
 
 # Picks the vendor INF to bind back:
 #   1. recorded path (vendor-inf.txt, then service.json's VendorInf), provided
-#      it is under %windir%\INF, exists, and is not nekodrop's own INF (#12);
+#      it is under %windir%\INF, exists, and is not AetherDrop's own INF (#12);
 #   2. else the newest Net package in the driver store matching this PCI
-#      vendor's provider patterns (never nekodrop's own INF or provider).
+#      vendor's provider patterns (never AetherDrop's own INF or provider).
 function Select-VendorInfPackage(
   $RecordedInfCandidates,
   $StoreDrivers,
@@ -189,7 +189,7 @@ function Select-VendorInfPackage(
   if (-not $ReadInfText) {
     $ReadInfText = { param($p) Get-Content -LiteralPath $p -Raw -ErrorAction SilentlyContinue }
   }
-  $nekodropInfs = @(Get-NekodropPublishedInfs $StoreDrivers)
+  $AetherDropInfs = @(Get-AetherDropPublishedInfs $StoreDrivers)
   $winRoot = if ($Windir) { ($Windir.Trim() -replace '/', '\').TrimEnd('\') } else { '' }
   foreach ($cand in @($RecordedInfCandidates | Where-Object { $_ })) {
     $path = "$cand".Trim()
@@ -200,10 +200,10 @@ function Select-VendorInfPackage(
     }
     if (-not (Test-TrustedInfPath $path $Windir)) { continue }
     $leaf = [IO.Path]::GetFileName($path)
-    if (($ProxyInfNames -contains $leaf) -or ($nekodropInfs -contains $leaf)) { continue }
+    if (($ProxyInfNames -contains $leaf) -or ($AetherDropInfs -contains $leaf)) { continue }
     if (-not (& $PathExists $path)) { continue }
     $txt = & $ReadInfText $path
-    if (Test-NekodropInfContent "$txt") { continue }
+    if (Test-AetherDropInfContent "$txt") { continue }
     return $path
   }
 
@@ -216,7 +216,7 @@ function Select-VendorInfPackage(
     $orig = [IO.Path]::GetFileName("$($_.OriginalName)".Trim())
     $pub = [IO.Path]::GetFileName("$($_.DriverName)".Trim())
     $prov = "$($_.ProviderName)".Trim()
-    if (($ProxyInfNames -contains $orig) -or ($nekodropInfs -contains $pub)) { return $false }
+    if (($ProxyInfNames -contains $orig) -or ($AetherDropInfs -contains $pub)) { return $false }
     if ($prov -eq $ProxyProvider) { return $false }
     return ($prov -match $pattern)
   }) | Sort-Object { Parse-DriverVersion $_.DriverVersion } -Descending | Select-Object -First 1
@@ -260,15 +260,15 @@ if ($SelfTest) {
     (Drv 'oem32.inf' 'bcmwl63a.inf'        'Broadcom'                    'Net'          '06/01/2024 7.77.119.0'),
     (Drv 'oem40.inf' 'ibtusb.inf'          'Intel Corporation'           'Bluetooth'    '09/01/2025 99.0.0.1'),
     (Drv 'oem42.inf' 'winawdl_regproxy.inf' 'winairdrop project'         'WinAwdlRadio' '03/01/2026 0.1.0.1'),
-    (Drv 'oem43.inf' 'nekodrop-wlan.inf'   'winairdrop project'          'Net'          '03/01/2026 99.9.9.9'),
+    (Drv 'oem43.inf' 'AetherDrop-wlan.inf'   'winairdrop project'          'Net'          '03/01/2026 99.9.9.9'),
     (Drv 'oem5.inf'  'sensors.inf'         'Microsoft'                   'Sensor'       '01/01/2024 10.0.19041.1')
   )
-  $pubProxy = @(Get-NekodropPublishedInfs $store)
+  $pubProxy = @(Get-AetherDropPublishedInfs $store)
   if ($pubProxy.Count -ne 2 -or $pubProxy -notcontains 'oem42.inf' -or $pubProxy -notcontains 'oem43.inf') {
-    $fail += "nekodrop published INFs wrong: $($pubProxy -join ', ')"
+    $fail += "AetherDrop published INFs wrong: $($pubProxy -join ', ')"
   }
 
-  # 2. Intel driver-store selection (newest version, Killer supported, Bluetooth and nekodrop ignored).
+  # 2. Intel driver-store selection (newest version, Killer supported, Bluetooth and AetherDrop ignored).
   $intelPkg = Select-VendorInfPackage @() $store '8086' 'C:\Windows' { param($p) $false } { param($p) '' }
   if ($intelPkg -ne 'C:\Windows\INF\oem11.inf') { $fail += "Intel store fallback picked '$intelPkg', want oem11.inf" }
   $killerOnly = @(
@@ -301,18 +301,18 @@ if ($SelfTest) {
   if ((Select-VendorInfPackage @() $store '14E4' 'C:\Windows' { param($p) $false } { param($p) '' }) -ne 'C:\Windows\INF\oem32.inf') { $fail += 'Broadcom fallback failed' }
   if ($null -ne (Select-VendorInfPackage @() $store '1AE0' 'C:\Windows' { param($p) $false } { param($p) '' })) { $fail += 'unknown vendor selected a driver package' }
 
-  # 5. Unknown PCI device bound to WUDFRd + nekodrop's INF IS selected, while
+  # 5. Unknown PCI device bound to WUDFRd + AetherDrop's INF IS selected, while
   # unrelated WUDFRd PCI device (sensors.inf) is strictly ignored.
   $mixedDevs = @(
     (Dev 'PCI\VEN_8086&DEV_9D3A&SUBSYS_00008086\3&1' 'WUDFRd' 'oem5.inf' 'Microsoft' 'PCI Sensor'),
     (Dev 'PCI\VEN_14C3&DEV_7922&SUBSYS_7922103C\4&1' 'WUDFRd' 'oem42.inf' 'winairdrop project' 'WinAwdl Radio')
   )
   $pickedBound = Resolve-RestoreTargetDevice $mixedDevs $pubProxy
-  if (-not $pickedBound -or $pickedBound.InstanceId -notmatch 'DEV_7922') { $fail += 'device bound to nekodrop proxy was not selected' }
+  if (-not $pickedBound -or $pickedBound.InstanceId -notmatch 'DEV_7922') { $fail += 'device bound to AetherDrop proxy was not selected' }
   $sensorOnly = @((Dev 'PCI\VEN_8086&DEV_9D3A&SUBSYS_00008086\3&1' 'WUDFRd' 'oem5.inf' 'Microsoft' 'PCI Sensor'))
   if ($null -ne (Resolve-RestoreTargetDevice $sensorOnly $pubProxy)) { $fail += 'unrelated WUDFRd sensor device was wrongly selected' }
-  $kdrvOnly = @((Dev 'PCI\VEN_1234&DEV_5678&SUBSYS_00001234\4&1' 'nekodrop-wlan' 'oem43.inf' 'winairdrop project' 'nekodrop WLAN'))
-  if ($null -eq (Resolve-RestoreTargetDevice $kdrvOnly $pubProxy)) { $fail += 'device bound to nekodrop-wlan was not selected' }
+  $kdrvOnly = @((Dev 'PCI\VEN_1234&DEV_5678&SUBSYS_00001234\4&1' 'AetherDrop-wlan' 'oem43.inf' 'winairdrop project' 'AetherDrop WLAN'))
+  if ($null -eq (Resolve-RestoreTargetDevice $kdrvOnly $pubProxy)) { $fail += 'device bound to AetherDrop-wlan was not selected' }
   $provOnly = @((Dev 'PCI\VEN_1234&DEV_5679&SUBSYS_00001234\4&1' 'WUDFRd' 'oem99.inf' 'winairdrop project' 'WinAwdl Radio'))
   if ($null -eq (Resolve-RestoreTargetDevice $provOnly @())) { $fail += 'device with winairdrop project provider was not selected' }
   $failedBind = @((Dev 'PCI\VEN_1234&DEV_567A&SUBSYS_00001234\4&1' '' 'oem42.inf' 'winairdrop project' 'WinAwdl Radio'))
@@ -326,7 +326,7 @@ if ($SelfTest) {
     'C:\Windows\INF\oem77.inf' = '[Version] Provider = %INTEL%'
     'C:\Windows\INF\oem78.inf' = '[Version] Provider = %INTEL%'
     'C:\Windows\INF\oem79.inf' = '[Version] Provider = "winairdrop project" ; winawdl_regproxy'
-    'C:\Windows\INF\oem80.inf' = '[Strings] ServiceDesc = "nekodrop-wlan driver"'
+    'C:\Windows\INF\oem80.inf' = '[Strings] ServiceDesc = "AetherDrop-wlan driver"'
     'C:\Windows\INF\oem42.inf' = '[Version] Provider = %BENIGN%'
     'C:\Temp\evil.inf'         = '[Version] Provider = %INTEL%'
   }
@@ -361,18 +361,21 @@ if (-not $isAdmin) {
   exit 1
 }
 
-$state = Join-Path $env:ProgramData 'nekodrop'
+$state = Join-Path $env:ProgramData 'AetherDrop'
+if (-not (Test-Path -LiteralPath $state) -and (Test-Path -LiteralPath (Join-Path $env:ProgramData 'nekodrop'))) { $state = Join-Path $env:ProgramData 'nekodrop' }
 New-Item -ItemType Directory -Force $state | Out-Null
 Start-Transcript (Join-Path $state 'restore.log') -Force | Out-Null
 
-'1. Stopping nekodrop'
-$svc = Get-Service NekoDropService -ErrorAction SilentlyContinue
-if ($svc) {
-  Stop-Service NekoDropService -Force -ErrorAction SilentlyContinue
-  Set-Service NekoDropService -StartupType Disabled
+'1. Stopping AetherDrop'
+foreach ($serviceName in 'AetherDropService', 'NekoDropService') {
+ $svc = Get-Service $serviceName -ErrorAction SilentlyContinue
+ if ($svc) {
+  Stop-Service $serviceName -Force -ErrorAction SilentlyContinue
+  Set-Service $serviceName -StartupType Disabled
   '   service stopped and disabled'
+ }
 }
-Get-Process nekodrop-radio, nekodrop-radio-rtl, awdld -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process AetherDrop-radio, AetherDrop-radio-rtl, AetherDrop-radio-mt, AetherDrop-radio-mtk, awdld -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
   Where-Object { $_.CommandLine -like '*airdrop*engine.py*' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -385,7 +388,7 @@ try {
     $storeDrivers = @($storeXml.PnpUtil.Driver)
   }
 } catch { }
-$nekodropInfs = @(Get-NekodropPublishedInfs $storeDrivers)
+$AetherDropInfs = @(Get-AetherDropPublishedInfs $storeDrivers)
 
 $presentPci = @(Get-PnpDevice -PresentOnly | Where-Object { $_ -and (Get-PciVendorDevice $_.InstanceId) })
 $pciCandidates = foreach ($p in $presentPci) {
@@ -406,14 +409,14 @@ $pciCandidates = foreach ($p in $presentPci) {
     DriverProvider = $(if ($propProv) { "$propProv" } else { '' })
   }
 }
-$dev = Resolve-RestoreTargetDevice $pciCandidates $nekodropInfs
+$dev = Resolve-RestoreTargetDevice $pciCandidates $AetherDropInfs
 if (-not $dev) {
-  '   no Wi-Fi card nekodrop knows or holds is present; nothing to give back'
+  '   no Wi-Fi card AetherDrop knows or holds is present; nothing to give back'
 } else {
   $pci = Get-PciVendorDevice $dev.InstanceId
   $profile = Get-VendorProfile $pci.VendorId
   "   card: $($dev.InstanceId), now $($dev.FriendlyName) ($($dev.Status))"
-  # Vendor package: the one nekodrop recorded before taking the card (validated
+  # Vendor package: the one AetherDrop recorded before taking the card (validated
   # so a poisoned proxy INF is never reused), else the newest matching Net
   # package in the driver store for this PCI vendor.
   $recorded = @()
@@ -445,7 +448,7 @@ public static extern bool UpdateDriverForPlugAndPlayDevicesW(System.IntPtr hwnd,
     "   $($profile.Name)'s driver package was not found in the driver store"
   }
 
-  '3. Removing nekodrop''s driver packages'
+  '3. Removing AetherDrop''s driver packages'
   try {
     $store = [xml](pnputil /enum-drivers /format xml | Out-String)
     if ($store -and $store.PnpUtil -and $store.PnpUtil.Driver) {
@@ -455,7 +458,7 @@ public static extern bool UpdateDriverForPlugAndPlayDevicesW(System.IntPtr hwnd,
     }
   } catch { }
 
-  # If the bind did not take, let Plug and Play choose again: with nekodrop's
+  # If the bind did not take, let Plug and Play choose again: with AetherDrop's
   # packages gone, the vendor's is the best match left.
   $now = Get-PnpDevice -InstanceId $dev.InstanceId -ErrorAction SilentlyContinue
   $service = (Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName DEVPKEY_Device_Service -ErrorAction SilentlyContinue).Data
@@ -490,11 +493,11 @@ if (Test-Path $backup) {
   }
   "   restored $added saved network(s)"
 } else {
-  '   no backup (nekodrop before 0.1.9 kept none)'
+  '   no backup (AetherDrop before 0.1.9 kept none)'
 }
 
 '5. Network'
-Get-NetAdapter -Name nekodrop -ErrorAction SilentlyContinue | Disable-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue
+Get-NetAdapter -Name AetherDrop -ErrorAction SilentlyContinue | Disable-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue
 Set-Service WlanSvc -StartupType Automatic -ErrorAction SilentlyContinue
 Start-Service WlanSvc -ErrorAction SilentlyContinue
 

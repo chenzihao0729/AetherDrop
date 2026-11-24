@@ -1,45 +1,112 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.Windows;
 using System.Windows.Media;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>
-/// Colors after the Windows 11 design (Fluent): follow the system light/dark
-/// setting, with the shared blue accent; Microsoft YaHei
-/// for text and Segoe Fluent Icons for symbolic device glyphs.
+/// The colours of the design (docs: the nekodrop UI prototype): a light and a
+/// dark set after Windows 11 Mica, and one accent at a time, either Windows'
+/// own or one of four the user can switch to in the settings.
 /// </summary>
 public static class Theme
 {
-    public static ResourceDictionary Build()
+    /// <summary>An accent: its colour on light and on dark, and the text drawn on it in dark mode.</summary>
+    public sealed record AccentSet(string Key, Color Light, Color Dark, Color DarkOn);
+
+    static Color C(uint argb) => Color.FromArgb((byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
+
+    /// <summary>The accents offered besides Windows' own ("").</summary>
+    public static readonly AccentSet[] Accents =
+    [
+        new("blue", UiColors.Get("Accent", false), UiColors.Get("Accent", true), UiColors.Get("OnAccent", true)),
+        new("indigo", UiColors.Get("Accent", false), UiColors.Get("Accent", true), UiColors.Get("OnAccent", true)),
+        new("teal", UiColors.Get("Accent", false), UiColors.Get("Accent", true), UiColors.Get("OnAccent", true)),
+        new("rose", UiColors.Get("Accent", false), UiColors.Get("Accent", true), UiColors.Get("OnAccent", true)),
+    ];
+
+    public static bool Dark { get; private set; }
+
+    /// <summary>The accent setting for colourful: Windows' accent, each state in its own colour.</summary>
+    public const string Colourful = "colourful";
+
+    /// <summary>
+    /// The colours. In the default one-colour look, only the accent (and green
+    /// for success, red for real errors) is used; colourful shows a declined
+    /// send in amber and a failed one in red, as the design drew them.
+    /// </summary>
+    public static ResourceDictionary Build(string chosen = "", bool? forceDark = null, bool colourful = false)
     {
-        var dark = Palette.Dark;
-        var accent = Palette.Color(0,122,255);
-        SolidColorBrush B(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
-        var d = new ResourceDictionary
+        var dark = Dark = forceDark ?? Palette.Dark;
+        colourful |= chosen == Colourful;
+        Color accent, onAccent;
+        if (Accents.FirstOrDefault(a => a.Key == chosen) is { } set)
         {
+            accent = dark ? set.Dark : set.Light;
+            onAccent = dark ? set.DarkOn : Colors.White;
+        }
+        else
+        {
+            accent = UiColors.Get("Accent", dark);
+            onAccent = UiColors.Get("OnAccent", dark);
+        }
+        SolidColorBrush B(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+
+        var text = UiColors.Get("Text", dark);
+        var text2 = UiColors.Get("Secondary", dark);
+        var text3 = UiColors.Get("Muted", dark);
+        var border = UiColors.Get("Border", dark);
+        var borderStrong = UiColors.Get("StrongBorder", dark);
+        var card = UiColors.Get("Surface", dark);
+        var cardHover = UiColors.Get("Hover", dark);
+        var success = UiColors.Get("Success", dark);
+        var amber = UiColors.Get("Warning", dark);
+        var error = UiColors.Get("Error", dark);
+
+        var resources = new ResourceDictionary
+        {
+            // The design's names
             ["Accent"] = B(accent),
-            ["AccentText"] = B(dark ? Lighten(accent, 0.45) : Darken(accent, 0.15)),
-            ["OnAccent"] = B(Colors.White),
-            ["Text"] = B(Palette.Color(28,32,36)),
-            ["TextSecondary"] = B(Palette.Color(108,115,122)),
-            ["Window"] = B(Palette.Color(245,250,252)),
-            ["Card"] = B(Palette.Color(255,255,255)),
-            ["CardHover"] = B(Palette.Color(230,241,255)),
-            ["CardStroke"] = B(Palette.Color(223,231,238)),
-            ["Divider"] = B(Palette.Color(221,230,238)),
-            ["DropWell"] = B(Palette.Color(248,251,254)),
+            ["AccentSubtle"] = B(UiColors.Get("Selection", dark)),
+            ["OnAccent"] = B(onAccent),
+            ["Mica"] = B(UiColors.Get("Background", dark)),
+            ["MicaSolid"] = B(UiColors.Get("Background", dark)),
+            ["MicaAlt"] = B(UiColors.Get("Surface", dark)),
+            ["Card"] = B(card),
+            ["NoticeSurface"] = B(UiColors.Get("Raised", dark)),
+            ["CardHover"] = B(cardHover),
+            ["PressTint"] = B(dark ? C(0x1AFFFFFF) : C(0x12000000)),
+            ["RadarBg"] = B(UiColors.Get("Surface", dark)),
+            ["Border"] = B(border),
+            ["BorderStrong"] = B(borderStrong),
+            ["Text"] = B(text),
+            ["Text2"] = B(text2),
+            ["Text3"] = B(text3),
+            // Semantic colour is reserved for actual success, warning and error states.
+            ["Success"] = B(success),
+            ["SuccessBg"] = B(UiColors.Get("SuccessBg", dark)),
+            ["Warn"] = B(amber),
+            ["WarnBg"] = B(UiColors.Get("WarningBg", dark)),
+            // A device's send that was declined or failed (the radar and the list).
+            ["Declined"] = B(text3),
+            ["Failed"] = B(error),
+            ["FailedText"] = B(error),
+            ["Error"] = B(error),
+            ["ErrorBg"] = B(UiColors.Get("ErrorBg", dark)),
+            // Older names still used by some windows
+            ["AccentText"] = B(accent),
+            ["TextSecondary"] = B(text2),
+            ["Window"] = B(UiColors.Get("Background", dark)),
+            ["CardStroke"] = B(border),
+            ["Divider"] = B(border),
+            ["DropWell"] = B(card),
+            ["Caution"] = B(amber),
+            ["Critical"] = B(error),
             ["UiFont"] = Typography.Regular,
             ["IconFont"] = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
         };
-        foreach (var type in new[] { typeof(System.Windows.Controls.ToolTip), typeof(System.Windows.Controls.ContextMenu) })
-        {
-            var style = new Style(type);
-            style.Setters.Add(new Setter(System.Windows.Controls.Control.FontFamilyProperty, Typography.Regular));
-            d.Add(type, style);
-        }
-        Palette.AddResources(d);
-        return d;
+        Palette.AddResources(resources);
+        return resources;
     }
 
     static Color Lighten(Color c, double t) =>

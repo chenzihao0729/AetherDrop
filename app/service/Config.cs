@@ -4,7 +4,7 @@ using System.Security.Principal;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace NekoDrop.Service;
+namespace AetherDrop.Service;
 
 /// <summary>How Wi-Fi and AirDrop share the card.</summary>
 public enum NetMode
@@ -17,7 +17,7 @@ public enum NetMode
     Off,
 }
 
-/// <summary>Machine-wide settings, in %ProgramData%\nekodrop\service.json.</summary>
+/// <summary>Machine-wide settings, in %ProgramData%\AetherDrop\service.json.</summary>
 public sealed class ServiceConfig
 {
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -42,12 +42,6 @@ public sealed class ServiceConfig
     /// </summary>
     public bool CoexPlan { get; set; }
     /// <summary>
-    /// Experimental balanced Bluetooth coexistence on Intel cards (radio --bt-coex 1, as
-    /// ForbiddenItlwm's itlawdlbtcoex=1): the firmware stops always favouring Wi-Fi, so the
-    /// Bluetooth beacon that wakes Apple devices gets out while AWDL listens. Off by default.
-    /// </summary>
-    public bool BtCoexBalanced { get; set; }
-    /// <summary>
     /// The user's manual choice when the card is not recognized by its ID
     /// (Settings, "Wi-Fi card"): its PCI hardware ID ("PCI\VEN_xxxx&amp;DEV_yyyy")
     /// and a CardCatalog.ManualModels key; both "" for automatic.
@@ -60,7 +54,7 @@ public sealed class ServiceConfig
     public string VendorInf { get; set; } = "";
 
     public static string Folder =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "nekodrop");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AetherDrop");
     static string FilePath => Path.Combine(Folder, "service.json");
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 // Offline STA smoke checks: temporary windows and synthetic engine events, no radio or settings writes.
 using System;
 using System.Linq;
@@ -9,7 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
-using NekoDrop;
+using AetherDrop;
 static class Check {
     static App app = null!;
     static double? deviceTemplateY;
@@ -42,7 +42,7 @@ static class Check {
         return parent.TranslatePoint(new Point(0,slot.Bottom),card).Y;
     }
     static void Template(ReceiveWindow card, FrameworkElement footer) {
-        var heading=Nodes<TextBlock>(card).Single(t=>t.IsVisible && (t.Text.StartsWith("正在接收") || t.Text is "收到隔空投送邀请" or "接收已结束" or "接收完成"));
+        var heading=Nodes<TextBlock>(card).Single(t=>t.IsVisible && (t.Text.StartsWith("正在接收") || t.Text is "收到隔空投送邀请" or "接收已停止" or "接收完成"));
         double top=heading.TranslatePoint(new Point(),card).Y;
         double bottom=FooterBottom(footer,card);
         Assert(Math.Abs(top-(card.Height-bottom))<=1,"Title and footer have equal distances from the symmetric card borders");
@@ -61,7 +61,7 @@ static class Check {
         Assert(Place(new System.Windows.Rect(0,0,1920,1040),null)==828,"Regular tray popup stays above the taskbar");
         Assert(Place(new System.Windows.Rect(0,0,1920,1040),880)==668,"Overflow tray popup clears the whole expanded tray panel");
         Assert(Place(new System.Windows.Rect(-1920,-400,1920,1040),-300)==-400,"Overflow placement respects monitor work-area top on offset displays");
-        var tray=new TrayWindow(app); tray.OpenAt(System.Windows.Forms.Cursor.Position); Pump(25);
+        var tray=new TrayWindow(app); tray.OpenAt(new System.Drawing.Point(100, 100)); Pump(25);
         var traySurface=(Grid)tray.Content;
         double trayLeft=tray.Left, trayTop=tray.Top;
         MotionFrame(tray,"tray-open-025",tray.Left);
@@ -108,7 +108,7 @@ static class Check {
         settingsButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(30);
         Assert(app.Windows.OfType<SettingsWindow>().Count(w=>w.IsVisible)==1,"Repeated gear click reuses the settings window");
         app.Windows.OfType<SettingsWindow>().Single().Close();
-        var left=tray.Left; var top=tray.Top; tray.OpenAt(System.Windows.Forms.Cursor.Position); Pump(30);
+        var left=tray.Left; var top=tray.Top; tray.OpenAt(new System.Drawing.Point(100, 100)); Pump(30);
         Assert(tray.IsVisible && tray.Left==left && tray.Top==top,"Repeated tray click leaves card open and stationary");
         // Raise deactivation directly to verify it is deliberately not a dismissal condition.
         typeof(Window).GetMethod("OnDeactivated", BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(tray, new object[]{EventArgs.Empty});
@@ -174,10 +174,10 @@ static class Check {
         var failureSender=Nodes<TextBlock>(failed).Single(t=>t.Text=="iPhone");
         Template(failed,failureText);
         Assert(Math.Abs(failureText.TranslatePoint(new Point(0,failureText.ActualHeight),failed).Y-footerBottom)<=1,"Interruption message uses the shared footer bottom anchor");
-        Assert(failureText.FontSize==14 && failureSender.FontSize==senderLabel.FontSize,"Failure uses enlarged message and matching device-name size");
+        Assert(failureText.FontSize==16 && failureSender.FontSize==senderLabel.FontSize,"Failure uses enlarged message and matching device-name size");
         Assert(!Nodes<TextBlock>(failed).Any(t=>t.Text.Contains("secret-file")),"Failure contains no filename");
-        Assert(ReferenceEquals(retainedFailureSender,failureSender) && failureSender.Opacity==1 && failureTitle.Text=="接收已结束" && Nodes<FrameworkElement>(failed).All(e=>e.RenderTransform.Value.IsIdentity),"Interruption preserves unchanged device text and settles shared slots without transform residue");
-        Assert(!Nodes<Button>(failed).Any(b=>b.IsVisible && b.Content?.ToString()=="打开所在位置") && !Nodes<System.Windows.Shapes.Path>(failed).Any(p=>p.IsVisible),"Interruption never shows completion-only controls or checkmark");
+        Assert(ReferenceEquals(retainedFailureSender,failureSender) && failureSender.Opacity==1 && failureTitle.Text=="接收已停止" && Nodes<FrameworkElement>(failed).All(e=>e.RenderTransform.Value.IsIdentity),"Interruption preserves unchanged device text and settles shared slots without transform residue");
+        Assert(!Nodes<Button>(failed).Any(b=>b.IsVisible && b.Content?.ToString()=="打开所在位置") && Nodes<System.Windows.Shapes.Path>(failed).Count(p=>p.IsVisible)==2,"Interruption shows two stopped-X strokes and no completion-only controls");
         failed.Close();
         Nodes<Button>(request).Single(b=>b.Content?.ToString()=="接受").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(550);
         Assert(request.IsVisible && request.Left==x && request.Top==y,"Accept changes to progress at the identical position");
@@ -185,14 +185,16 @@ static class Check {
         Template(request,rateLabel);
         Assert(Math.Abs(FooterBottom(rateLabel,request)-footerBottom)<=1,"Live speed uses the shared footer bottom anchor");
         Event("{\"event\":\"incoming\",\"id\":\"r1\",\"done\":0,\"total\":100000000}"); Pump(300);
-        Event("{\"event\":\"incoming\",\"id\":\"r1\",\"done\":68000000,\"total\":100000000}"); Pump(280);
+        Event("{\"event\":\"incoming\",\"id\":\"r1\",\"done\":68000000,\"total\":100000000}"); Pump(650);
+        var speedTimer=(DispatcherTimer)typeof(ReceiveWindow).GetField("_speedTimer",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(request)!;
+        Assert(speedTimer.Interval==TimeSpan.FromMilliseconds(800),"Live rate refreshes every 0.8 seconds");
         Assert(Nodes<TextBlock>(request).Any(t=>t.IsVisible && t.Text=="正在接收 68%"),"Incoming percentage updates dynamically after the receiving title");
         Assert(!Nodes<TextBlock>(request).Any(t=>t.IsVisible && t.Text=="0%"),"No separate percentage line remains below the speed");
         Assert(Nodes<TextBlock>(request).Any(t=>t.Text.Contains("MB/s")),"Incoming byte deltas produce live transfer speed");
         string firstRate=Nodes<TextBlock>(request).Single(t=>t.Text.Contains("MB/s")).Text;
-        Event("{\"event\":\"incoming\",\"id\":\"r1\",\"done\":69000000,\"total\":100000000}"); Pump(280);
+        Event("{\"event\":\"incoming\",\"id\":\"r1\",\"done\":69000000,\"total\":100000000}"); Pump(800);
         Assert(Nodes<TextBlock>(request).Any(t=>t.Text.Contains("MB/s") && t.Text!=firstRate),"Different byte deltas change the measured rate instead of displaying a constant");
-        Pump(600);
+        Pump(850);
         Assert(Nodes<TextBlock>(request).Any(t=>t.IsVisible && t.Text=="0 KB/s"),"No incoming bytes reduces the live rate to zero");
         var rateInk=VisualTreeHelper.GetDescendantBounds(rateLabel);
         Assert(rateLabel.Height==acceptButton.Height && rateLabel.FontSize==22,"Moderate speed text keeps the shared button-height footer slot");
@@ -235,28 +237,38 @@ static class Check {
         Pump(4000); Assert(!request.IsVisible,"Completed card exits automatically after the four-second hold");
         Ask("r2"); Ask("r3"); Pump(550);
         Assert(app.Windows.OfType<ReceiveWindow>().Count(w=>w.IsVisible)==1,"Simultaneous invitations queue without overlap");
-        var declined=Active(); Nodes<Button>(declined).Single(b=>b.Content?.ToString()=="拒绝").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Pump(100); Assert(declined.IsVisible,"Decline retains window during exit animation");
-        Pump(500); Assert(!declined.IsVisible && Active().RequestId=="r3","Decline flies out then presents next invitation");
+        var declined=Active(); var declineClock=System.Diagnostics.Stopwatch.StartNew(); TimeSpan? declinedAt=null;
+        declined.Closed+=(_,_)=>declinedAt=declineClock.Elapsed;
+        Nodes<Button>(declined).Single(b=>b.Content?.ToString()=="拒绝").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        // A nominal 100ms dispatcher sample can run after the 280ms exit under
+        // rendering load. Check visibility at the action, then time the real close.
+        Assert(!FloatingCard.Motion || declined.IsVisible,"Decline retains window during exit animation");
+        Pump(600); Assert(!declined.IsVisible && Active().RequestId=="r3","Decline flies out then presents next invitation");
+        if(FloatingCard.Motion) Assert(declinedAt>=TimeSpan.FromMilliseconds(240),"Decline waits for its exit animation before closing the native window");
         Event("{\"event\":\"answered\",\"id\":\"r3\",\"how\":\"expired\"}"); Pump(400);
         Assert(!app.Windows.OfType<ReceiveWindow>().Any(w=>w.IsVisible),"Expired invitation clears the card");
         Ask("r4"); Pump(500); app.Answer("r4",true); Pump(50); var ongoing=Active();
-        Nodes<Button>(ongoing).Single(b=>b.Content?.ToString()=="×").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(400);
-        Assert(!ongoing.IsVisible && app.Model.Requests.Any(r=>r.Id=="r4"),"Closing progress hides UI without cancelling the transfer");
+        Assert(!Nodes<Button>(ongoing).Any(b=>b.Content?.ToString()=="×"),"Receive cards have no close button");
+        ongoing.Dismiss(); Pump(400);
+        Assert(!ongoing.IsVisible && app.Model.Requests.Any(r=>r.Id=="r4"),"Dismissing progress leaves the transfer intact");
         Event("{\"event\":\"ready\"}"); Pump(50); Assert(app.Model.Requests.Count==0,"Engine restart clears stale request identities");
+        // Other windows can dismiss the tray during the receive-card checks.
+        // Reopen it so this assertion measures exit animation from an open popup.
+        tray = new TrayWindow(app); tray.OpenAt(new System.Drawing.Point(100, 100)); Pump(360);
+        traySurface = (Grid)tray.Content;
         tray.Dismiss(); Pump(55);
         if(FloatingCard.Motion) {
             Assert(tray.IsVisible && traySurface.RenderTransform is ScaleTransform exit && exit.ScaleX<1 && traySurface.Opacity<1,"Tray stays mounted while shrinking and fading toward its original anchor");
             MotionFrame(tray,"tray-close-055",tray.Left);
         }
         Pump(200); Assert(!tray.IsVisible,"Tray dismisses with exit animation");
-        var interruptedTray=new TrayWindow(app); interruptedTray.OpenAt(System.Windows.Forms.Cursor.Position); Pump(30);
+        var interruptedTray=new TrayWindow(app); interruptedTray.OpenAt(new System.Drawing.Point(100, 100)); Pump(30);
         var interruptedSurface=(Grid)interruptedTray.Content;
         double beforeDismiss=interruptedSurface.RenderTransform.Value.M11;
         interruptedTray.Dismiss();
         if(FloatingCard.Motion) Assert(Math.Abs(interruptedSurface.RenderTransform.Value.M11-beforeDismiss)<.01,"Closing during entry continues from its current size without a jump");
         Pump(240); Assert(!interruptedTray.IsVisible,"Tray can close safely during its entry animation");
-        var outsideCard=new TrayWindow(app);outsideCard.OpenAt(System.Windows.Forms.Cursor.Position);Pump(360);
+        var outsideCard=new TrayWindow(app);outsideCard.OpenAt(new System.Drawing.Point(100, 100));Pump(360);
         var other=new Window {Width=180,Height=100,Left=100,Top=100,WindowStartupLocation=WindowStartupLocation.Manual};other.Show();Pump(50);
         var otherSource=System.Windows.Interop.HwndSource.FromHwnd(new System.Windows.Interop.WindowInteropHelper(other).Handle)!;
         var position=otherSource.CompositionTarget!.TransformToDevice.Transform(new Point(other.Left+50,other.Top+50));

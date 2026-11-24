@@ -1,4 +1,4 @@
-# Applies nekodrop's changes to winawdl's awdld sources before they are built.
+# Applies AetherDrop's changes to winawdl's awdld sources before they are built.
 # Usage: python patch-awdl.py <winawdl folder>
 #
 # - awdl0 is retried when Wintun says it already exists (#30).  The service
@@ -16,10 +16,14 @@ import sys
 
 host_if = pathlib.Path(sys.argv[1]) / 'awdl' / 'win' / 'host_if.c'
 text = host_if.read_text(encoding='utf-8')
+legacy_marker = 'nekodrop (#30)'
+if legacy_marker in text:
+    text = text.replace(legacy_marker, 'AetherDrop (#30)')
+    host_if.write_text(text, encoding='utf-8')
 
 old = '\thost->adapter = host->api.CreateAdapter(ADAPTER_NAME, TUNNEL_TYPE, &adapter_guid);\n'
 new = '\n'.join([
-    '\t/* nekodrop (#30): the previous awdld\'s adapter may still be going away. */',
+    '\t/* AetherDrop (#30): the previous awdld\'s adapter may still be going away. */',
     '\tfor (int tries = 0;; tries++) {',
     '\t\thost->adapter = host->api.CreateAdapter(ADAPTER_NAME, TUNNEL_TYPE, &adapter_guid);',
     '\t\tif (host->adapter || GetLastError() != ERROR_ALREADY_EXISTS || tries >= 40)',
@@ -28,7 +32,7 @@ new = '\n'.join([
     '\t}',
     '',
 ])
-marker = "nekodrop (#30)"
+marker = "AetherDrop (#30)"
 
 if marker in text:
     print('host_if.c: already patched')

@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 /// <summary>Offline UI simulation. No engine, service, shell registration or real file writes.</summary>
 public sealed class UiDebugSession : IDisposable

@@ -25,6 +25,10 @@ New-Item -ItemType Directory -Force $fwDest | Out-Null
 foreach ($f in 'iwlwifi-Qu*-68.ucode', 'iwlwifi-cc-a0-68.ucode', 'iwlwifi-so-a0-*-68.ucode', 'iwlwifi-ty-a0-*-68.ucode', 'iwlwifi-*.pnvm') {
   Get-ChildItem $fwSource -Filter $f | Copy-Item -Destination $fwDest -Force
 }
+$be200Fw = "$repo\third_party\linux-firmware-iwlwifi-be200\iwlwifi-gl-c0-fm-c0-100.ucode"
+if (Test-Path $be200Fw) {
+  Copy-Item $be200Fw $fwDest -Force
+}
 Copy-Item "$repo\third_party\ForbiddenItlwm\iwlwifi-firmware-license" "$fwDest\LICENSE.iwlwifi-firmware" -Force
 
 & "$build\iwx_selftest.exe" $fwDest

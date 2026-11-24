@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+﻿// SPDX-License-Identifier: GPL-2.0-only
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
@@ -9,7 +9,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
-namespace NekoDrop;
+namespace AetherDrop;
 
 public sealed class App : Application
 {
@@ -22,20 +22,34 @@ public sealed class App : Application
             debugApp._startArgs = args;
             return debugApp.Run();
         }
-        if (args.Contains("--unregister")) { Shell.Unregister(); return 0; }
-        var pipeName = "nekodrop-ui-" + WindowsIdentity.GetCurrent().User?.Value;
-        using var single = new Mutex(true, @"Local\nekodrop-ui", out var first);
+        if (args.Contains("--unregister")) { Shell.Unregister(); try { AppleId.SignOut(); } catch (Exception) { } return 0; }
+        // Chosen in the Share sheet: send what was shared, like Explorer's verb.
+        if (args.Length == 0 && Shell.SharedFiles() is { Length: > 0 } shared) args = ["--send", .. shared];
+        var pipeName = "AetherDrop-ui-" + WindowsIdentity.GetCurrent().User?.Value;
+        using var single = new Mutex(true, @"Local\AetherDrop-ui", out var first);
         if (!first && !args.Contains("--snapshot"))
         {
             // Hand the arguments (files to send, a notification's answer) to the running copy.
-            try
+            // Explorer or the notification gave this short-lived process the right to
+            // come to the front; pass it on, or the running copy's window opens behind
+            // Explorer and the click looks like it did nothing (#45).
+            AllowSetForegroundWindow(-1 /* ASFW_ANY */);
+            Exception? why = null;
+            // A copy that is just starting (signed in a moment ago, or busy) gets a
+            // few tries instead of losing the files or the answer silently.
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out);
-                client.Connect(3000);
-                using var w = new StreamWriter(client, new UTF8Encoding(false));
-                w.WriteLine(string.Join("\u001f", args));
+                try
+                {
+                    using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out);
+                    client.Connect(4000);
+                    using var w = new StreamWriter(client, new UTF8Encoding(false));
+                    w.WriteLine(string.Join("\u001f", args));
+                    return 0;
+                }
+                catch (Exception e) { why = e; Thread.Sleep(500); }
             }
-            catch (Exception) { }
+            EngineLog($"ui: could not hand {DescribeArgs(args)} to the running AetherDrop: {why?.GetType().Name}: {why?.Message}");
             return 0;
         }
         var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -43,6 +57,15 @@ public sealed class App : Application
         app._startArgs = args;
         return app.Run();
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool AllowSetForegroundWindow(int processId);
+
+    /// <summary>What the arguments ask for, for the log (no file names: they go into reports).</summary>
+    static string DescribeArgs(string[] args) =>
+        args.Length > 0 && args[0].StartsWith("AetherDrop:", StringComparison.OrdinalIgnoreCase)
+            ? args[0].Split('?')[0]
+            : args.Contains("--send") ? $"--send ({args.SkipWhile(a => a != "--send").Count() - 1} items)" : string.Join(" ", args);
 
     string _pipeName = "";
     string[] _startArgs = [];
@@ -72,12 +95,15 @@ public sealed class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnSystemAppearanceChanged;
+        Exit += (_, _) => Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnSystemAppearanceChanged;
         L.Use(Settings.Language);
+        System.Windows.Controls.ToolTipService.IsEnabledProperty.OverrideMetadata(typeof(FrameworkElement), new FrameworkPropertyMetadata(false));
         if (UiDebugMode)
         {
             var lang = Array.IndexOf(_startArgs, "--lang");
             if (lang >= 0 && lang + 1 < _startArgs.Length) L.Use(_startArgs[lang + 1]);
-            Resources.MergedDictionaries.Add(Theme.Build());
+            ApplyTheme();
             var session = new UiDebugSession(this);
             var panel = new UiDebugWindow(session);
             MainWindow = panel;
@@ -89,13 +115,19 @@ public sealed class App : Application
         if (snap >= 0 && snap + 1 < _startArgs.Length) { Snapshot(_startArgs[snap + 1]); return; }
         Shell.SetIdentity();
         try { Shell.Register(Settings.StartWithWindows); } catch (Exception) { }
-        Resources.MergedDictionaries.Add(Theme.Build());
+        ApplyTheme();
         CreateTray();
+        ApplyHotkey();
+        KeepAppleIdFresh();
         Service.State += o => Dispatcher.BeginInvoke(() => OnServiceState(o));
         Service.Connected += up => Dispatcher.BeginInvoke(() =>
         {
-            if (!up) Model.Status = L.T("status.noService");
+            if (up) return;
+            Model.Status = L.T("status.noService");
+            Model.Air = "service_stopped";
+            Model.RadioOn = false;
         });
+        Model.Allow = Settings.Discoverable;
         Service.Start();
         Engine.Event += o => Dispatcher.BeginInvoke(() => OnEngine(o));
         Engine.Event += o => EngineLog(o.ToJsonString());
@@ -110,7 +142,7 @@ public sealed class App : Application
         });
         _wake.Start();
         var watchdog = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        watchdog.Tick += (_, _) => EngineWatchdog();
+        watchdog.Tick += (_, _) => { UpdateTransferActivity(); EngineWatchdog(); };
         watchdog.Start();
         // Updates: a look a minute after start, then every 6 hours.
         var updates = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
@@ -133,12 +165,12 @@ public sealed class App : Application
 
     static readonly object EngineLogLock = new();
 
-    /// <summary>The engine's events and stderr, kept in %LocalAppData%\nekodrop\engine.log (1 MB, one old copy).</summary>
+    /// <summary>The engine's events and stderr, kept in %LocalAppData%\AetherDrop\engine.log (1 MB, one old copy).</summary>
     static void EngineLog(string line)
     {
         try
         {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "nekodrop");
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AetherDrop");
             var path = Path.Combine(dir, "engine.log");
             lock (EngineLogLock)
             {
@@ -176,6 +208,14 @@ public sealed class App : Application
         if (!Engine.Running)
         {
             StartEngine();
+        }
+        else if (_engineIf < 0)
+        {
+            // The engine started before awdl0 existed and binds to it by itself (its
+            // link watcher polls every second). Restarting it here killed it just as
+            // the iPhone that woke the card had found it: the PC dropped out of the
+            // share sheet until it was reopened (#32, #35).
+            _engineIf = now;
         }
         else if (now != _engineIf
                  || _notReceivingSince is { } since && DateTime.UtcNow - since > TimeSpan.FromSeconds(30))
@@ -254,33 +294,20 @@ public sealed class App : Application
 
     Forms.ContextMenuStrip BuildMenu()
     {
+        static string Label(string key) => L.T(key).Replace("...", "").Replace("…", "").Trim();
         var menu = new Forms.ContextMenuStrip { Font = Typography.MenuFont };
         menu.Items.Add(L.T("tray.open"), null, (_, _) => ShowWindow());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        var receive = new Forms.ToolStripMenuItem(L.T("tray.receive")) { CheckOnClick = true, Checked = Settings.Discoverable };
-        receive.CheckedChanged += (_, _) => SetDiscoverable(receive.Checked);
-        menu.Items.Add(receive);
-        var mode = new Forms.ToolStripMenuItem(L.T("tray.mode"));
-        foreach (var (label, value) in new[] { (L.T("mode.concurrent.short"), "concurrent"), (L.T("mode.ondemand.short"), "ondemand"), (L.T("mode.off.short"), "off") })
-        {
-            var item = new Forms.ToolStripMenuItem(label) { Tag = value };
-            item.Click += (_, _) => Service.SetMode(value);
-            mode.DropDownItems.Add(item);
-        }
-        mode.DropDownOpening += (_, _) =>
-        {
-            var current = (string?)Service.Last?["mode"];
-            foreach (Forms.ToolStripMenuItem i in mode.DropDownItems) i.Checked = (string?)i.Tag == current;
-        };
-        menu.Items.Add(mode);
-        menu.Items.Add(L.T("wifi.tray"), null, (_, _) => ShowWifi());
-        menu.Items.Add(L.T("tray.settings"), null, (_, _) => new SettingsWindow().Show());
-        menu.Items.Add(L.T("tray.report"), null, (_, _) => RunReport());
+        menu.Items.Add(Label("wifi.tray"), null, (_, _) => ShowWifi());
+        menu.Items.Add(Label("tray.settings"), null, (_, _) => ShowSettings("general"));
+        menu.Items.Add(Label("tray.report"), null, (_, _) => RunReport());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(L.T("tray.quit"), null, (_, _) => Quit());
         TrayMenuRenderer.Apply(menu);
         return menu;
     }
+
+    public void QuitApp() => Quit();
 
     /// <summary>
     /// The diagnostic report (report.ps1 beside the app): it asks for
@@ -342,75 +369,214 @@ public sealed class App : Application
     /// with sample devices to DIR\*.png off screen and exits. For checking the
     /// UI without the service, the radio or a visible window.
     /// </summary>
+    static ReceiveWindow ProgressPreview() => ReceiveWindow.CreatePreview();
+
     void Snapshot(string dir)
     {
         var lang = Array.IndexOf(_startArgs, "--lang");
         if (lang >= 0 && lang + 1 < _startArgs.Length) L.Use(_startArgs[lang + 1]);
-        Resources.MergedDictionaries.Add(Theme.Build());
+        _theme = Theme.Build(Settings.Accent, _startArgs.Contains("--dark") ? true : _startArgs.Contains("--light") ? false : null,
+                             _startArgs.Contains("--colourful"));
+        Resources.MergedDictionaries.Add(_theme);
+        EnsureStyles();
         Directory.CreateDirectory(dir);
-        Model.Status = L.F("status.on", 44);
-        Model.Detail = "Wi-Fi: " + L.T("wifi.connected");
+        Model.Status = L.F("status.on", 149);
+        Model.RadioOn = true;
+        Model.Air = "ready";
+        Model.Mode = "concurrent";
+        Model.Channel = 149;
+        Model.Ssid = "Office-5G";
+        Model.Update = "0.1.40";
+        Motion.ForceOn = true;
         Model.Devices.Add(new Device { Id = "a", Name = "iPhone", Model = "iPhone15,2" });
-        Model.Devices.Add(new Device { Id = "b", Name = "MacBook Air", Model = "Mac14,2", Busy = true, Progress = 0.42, Status = L.F("send.sending", 0.42) });
-        Model.Requests.Add(new Request { Id = "r", Sender = "iPhone", Model = "iPhone15,2", What = L.F("what.photos", 2) });
+        Model.Devices.Add(new Device { Id = "b", Name = "MacBook Air", Model = "Mac14,2", Busy = true, Progress = 0.42, State = "sending", Status = L.F("send.sending", 0.42) });
+        Model.Devices.Add(new Device { Id = "c", Name = "iPad Pro", Model = "iPad14,5", State = "sent", Status = L.T("send.sent") });
+        Model.Devices.Add(new Device { Id = "d", Name = "iPhone 15 Pro Max", Model = "iPhone16,2", State = "declined", Status = L.T("send.declined") });
+        var asking = new Request { Id = "r", Sender = "iPhone", Model = "iPhone15,2", What = L.F("what.photos", 3) };
+        Model.Requests.Add(asking);
+        Model.Devices[0].Ask = asking; // the bubble under its icon
         Model.ReceivedFiles.Add(new Received { Name = "IMG_0042.HEIC", Path = "", From = "iPhone" });
-        foreach (var f in _startArgs.SkipWhile(a => a != "--send").Skip(1).TakeWhile(a => !a.StartsWith("--")))
-            Model.Files.Add(f);
-        var windows = new (string Name, Window W)[] { ("send", new SendWindow()), ("main", new MainWindow()), ("settings", new SettingsWindow()), ("wifi", new WifiWindow()),
-            ("tray", new TrayWindow(this)),
-            ("receive", new ReceiveWindow(new Request { Id = "preview", Sender = "iPhone", Model = "iPhone15,2", What = "IMG_0074.JPG" }, (_, _) => { })),
-            ("progress", ProgressPreview()), ("complete", ReceiveWindow.CreateCompletedPreview()), ("failed", ReceiveWindow.CreateFailedPreview()) };
+        Model.ReceivedFiles.Add(new Received { Name = L.F("what.videos", 1), Path = "", From = "MacBook Air", Failed = true });
+        Model.Files.Add(@"C:\Users\me\Pictures\IMG_2048.HEIC");
+        Model.Files.Add(@"C:\Users\me\Documents\Plan.pdf");
+        var wifiState = new JsonObject
+        {
+            ["radio"] = "on", ["mode"] = "concurrent", ["wifi"] = "connected", ["ssid"] = "Office-5G",
+            ["networks"] = new JsonArray(
+                new JsonObject { ["ssid"] = "Office-5G", ["dbm"] = -48, ["security"] = "wpa2-psk", ["saved"] = true, ["connected"] = true },
+                new JsonObject { ["ssid"] = "Home-WiFi", ["dbm"] = -61, ["security"] = "wpa2/3-psk", ["saved"] = true },
+                new JsonObject { ["ssid"] = "Guest-5G", ["dbm"] = -70, ["security"] = "wpa2-psk" },
+                new JsonObject { ["ssid"] = "CoffeeShop-Free", ["dbm"] = -80, ["security"] = "open" }),
+            ["known"] = new JsonArray(
+                new JsonObject { ["ssid"] = "Office-5G", ["auto"] = true },
+                new JsonObject { ["ssid"] = "Home-WiFi", ["auto"] = false }),
+        };
+        Window Main(string air, string detail = "") { Model.Air = air; Model.Detail = detail; return new MainWindow(); }
+        // Each window is built just before it is drawn, so a variant can change the
+        // settings and the model first. A height draws more than fits on the build
+        // machine's screen (the main window's whole content).
+        var windows = new (string Name, Func<Window> Make, double Height)[]
+        {
+            ("send", () => new SendWindow(), 0),
+            ("main", () => Main("ready"), 1000),
+            ("main-list", () => { Settings.DeviceView = "list"; return Main("ready"); }, 1000),
+            ("settings-general", () => new SettingsWindow("general"), 0),
+            ("settings-network", () => new SettingsWindow("network"), 0),
+            ("settings-appleid", () => new SettingsWindow("appleid"), 0),
+            ("settings-hardware", () => new SettingsWindow("hardware"), 0),
+            ("settings-updates", () => new SettingsWindow("updates"), 0),
+            ("wifi", () => { var w = new WifiWindow(); w.Render(wifiState); return w; }, 0),
+            ("wifi-windows", () => { var w = new WifiWindow(); wifiState["mode"] = "ondemand"; w.Render(wifiState); return w; }, 0),
+            ("tray", () => new TrayMenu(), 0),
+            ("main-receiving", () => { Settings.DeviceView = "radar"; asking.Receiving = true; asking.Progress = 0.6; return Main("ready"); }, 0),
+            ("main-done", () => { asking.Receiving = false; var w = Main("ready"); w.Loaded += (_, _) => Dispatcher.BeginInvoke(Model.RaiseStored); return w; }, 0),
+            ("main-empty", () => { Settings.DeviceView = "radar"; Model.Devices.Clear(); Model.Requests.Clear(); return Main("ready"); }, 0),
+            ("main-starting", () => Main("starting"), 0),
+            ("main-standby", () => Main("standby"), 0),
+            ("main-off", () => Main("off"), 0),
+            ("main-error", () => Main("error", "bring-up failed: out of DMA memory for the firmware image"), 0),
+            ("main-noservice", () => Main("service_stopped"), 0),
+            ("main-nocard", () => Main("no_adapter"), 0),
+        };
         if (_startArgs.Contains("--live"))
         {
             // On screen, captured from the screen: shows the real backdrop (Mica).
-            _ = LiveSnapshot(dir, windows);
+            _ = LiveSnapshot(dir, windows.Select(x => (x.Name, x.Make())).ToArray());
             return;
         }
-        foreach (var (name, w) in windows)
+        foreach (var (name, make, tall) in windows)
         {
+            var w = make();
             w.WindowStartupLocation = WindowStartupLocation.Manual;
             w.Left = -20000; w.Top = -20000; w.ShowActivated = false; w.ShowInTaskbar = false;
             w.Show();
             w.UpdateLayout();
-            // Public documentation captures use neutral metadata, never local
-            // user paths or machine names. Only these preview controls change.
-            if (w is MainWindow mainPreview)
-            {
-                ((System.Windows.Controls.TextBlock)mainPreview.FindName("MachineText")).Text = "AetherDrop PC";
-                ((System.Windows.Controls.TextBlock)mainPreview.FindName("FolderText")).Text = @"Downloads\AetherDrop";
-            }
-            if (w is SettingsWindow settingsPreview)
-            {
-                ((System.Windows.Controls.TextBox)settingsPreview.FindName("NameBox")).Text = "AetherDrop PC";
-                ((System.Windows.Controls.TextBox)settingsPreview.FindName("FolderBox")).Text = @"Downloads\AetherDrop";
-            }
-            if (w is TrayWindow trayPreview)
-            {
-                foreach (var label in PreviewText(trayPreview))
-                    if (label.Text == Environment.MachineName) label.Text = "AetherDrop PC";
-            }
+            // Let the radar's first ripple grow out from behind the hub, so the
+            // picture shows where it is centered.
+            Pump(TimeSpan.FromMilliseconds(1200));
             if (w.Content is not FrameworkElement root) continue;
-            Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
-            var width = (int)root.ActualWidth; var height = (int)root.ActualHeight;
-            var visual = new System.Windows.Media.DrawingVisual();
-            using (var dc = visual.RenderOpen())
+            var width = root.ActualWidth;
+            var height = tall > 0 ? tall : root.ActualHeight;
+            if (tall > 0)
             {
-                dc.DrawRectangle(w is FloatingCard ? System.Windows.Media.Brushes.Transparent : (System.Windows.Media.Brush)Resources["Window"], null, new Rect(0, 0, width, height));
-                dc.DrawRectangle(new System.Windows.Media.VisualBrush(root), null, new Rect(0, 0, width, height));
+                root.Measure(new Size(width, height));
+                root.Arrange(new Rect(0, 0, width, height));
+                root.UpdateLayout();
             }
-            var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-            bmp.Render(visual);
+            Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            // The background, then the content as laid out (a VisualBrush would stretch
+            // it to the picture when the layout is taller than the window).
+            var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap((int)width, (int)height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            if (w is not TrayMenu)
+            {
+                var back = new System.Windows.Media.DrawingVisual();
+                using (var dc = back.RenderOpen())
+                    dc.DrawRectangle((System.Windows.Media.Brush)Resources["MicaSolid"], null, new Rect(0, 0, width, height));
+                bmp.Render(back);
+            }
+            bmp.Render(root);
             var png = new System.Windows.Media.Imaging.PngBitmapEncoder();
             png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
             using (var fs = File.Create(Path.Combine(dir, name + ".png"))) png.Save(fs);
             w.Close();
         }
+        MotionStrips(dir);
         Shutdown();
     }
 
-    static ReceiveWindow ProgressPreview()
+    /// <summary>
+    /// For --snapshot: the send and receive animations as strips of frames (the
+    /// radar only, every ~80 ms), so a build shows the motion without a screen.
+    /// </summary>
+    void MotionStrips(string dir)
     {
-        return ReceiveWindow.CreatePreview();
+        Settings.DeviceView = "radar";
+        Model.Requests.Clear();
+        Model.Devices.Clear();
+        var mac = new Device { Id = "m", Name = "MacBook Air", Model = "Mac14,2", State = "sending", Busy = true, Progress = 0.3, Status = L.F("send.sending", 0.3) };
+        var phone = new Device { Id = "p", Name = "iPhone", Model = "iPhone15,2" };
+        Model.Devices.Add(phone);
+        Model.Devices.Add(mac);
+        var ask = new Request { Id = "q", Sender = "iPhone", Model = "iPhone15,2", What = L.F("what.photos", 3), Receiving = true, Progress = 0.4 };
+        Model.Requests.Add(ask);
+        phone.Ask = ask;
+        Model.Air = "ready";
+
+        Strip(dir, "motion-send", () => { mac.Progress = 1; },
+              (360, () => { mac.State = "sent"; mac.Status = L.T("send.sent"); }),
+              [0, 120, 240, 360, 440, 520, 600, 700, 820, 1000]);
+        Strip(dir, "motion-receive", () => { ask.Progress = 1; },
+              (360, () => { Model.Requests.Remove(ask); phone.Ask = null; Model.RaiseStored(); }),
+              [0, 120, 240, 360, 440, 520, 600, 700, 820, 1000]);
+    }
+
+    void Strip(string dir, string name, Action start, (int At, Action Do) then, int[] times)
+    {
+        var w = new MainWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000, ShowActivated = false, ShowInTaskbar = false };
+        w.Show();
+        w.UpdateLayout();
+        Pump(TimeSpan.FromMilliseconds(1200));
+        var radar = FindChild<RadarView>(w);
+        if (radar is null) { w.Close(); return; }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        start();
+        var done = false;
+        var frames = new List<System.Windows.Media.Imaging.RenderTargetBitmap>();
+        foreach (var t in times)
+        {
+            if (!done && t >= then.At) { while (clock.ElapsedMilliseconds < then.At) Pump(TimeSpan.FromMilliseconds(5)); then.Do(); done = true; }
+            while (clock.ElapsedMilliseconds < t) Pump(TimeSpan.FromMilliseconds(5));
+            int fw = (int)radar.ActualWidth, fh = (int)radar.ActualHeight;
+            var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(fw, fh, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            var back = new System.Windows.Media.DrawingVisual();
+            using (var dc = back.RenderOpen())
+                dc.DrawRectangle((System.Windows.Media.Brush)Resources["MicaSolid"], null, new Rect(0, 0, fw, fh));
+            bmp.Render(back);
+            bmp.Render(radar);
+            frames.Add(bmp);
+        }
+        w.Close();
+        // Side by side, with each frame's time on top.
+        double fwd = frames[0].Width, fht = frames[0].Height;
+        var sheet = new System.Windows.Media.DrawingVisual();
+        using (var dc = sheet.RenderOpen())
+        {
+            dc.DrawRectangle((System.Windows.Media.Brush)Resources["MicaSolid"], null, new Rect(0, 0, fwd * frames.Count, fht + 22));
+            for (var i = 0; i < frames.Count; i++)
+            {
+                dc.DrawImage(frames[i], new Rect(i * fwd, 22, fwd, fht));
+                var label = new System.Windows.Media.FormattedText($"{times[i]} ms", System.Globalization.CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, new System.Windows.Media.Typeface("Segoe UI"), 13, (System.Windows.Media.Brush)Resources["Text2"], 1);
+                dc.DrawText(label, new Point(i * fwd + 8, 3));
+            }
+        }
+        var out_ = new System.Windows.Media.Imaging.RenderTargetBitmap((int)(fwd * frames.Count), (int)(fht + 22), 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        out_.Render(sheet);
+        var png = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(out_));
+        using var fs = File.Create(Path.Combine(dir, name + ".png"));
+        png.Save(fs);
+    }
+
+    static T? FindChild<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var c = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (c is T t) return t;
+            if (FindChild<T>(c) is { } found) return found;
+        }
+        return null;
+    }
+
+    /// <summary>Runs the dispatcher (animations, layout) for a while, for --snapshot.</summary>
+    void Pump(TimeSpan time)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = time };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
     }
 
     SendWindow? _send;
@@ -423,7 +589,7 @@ public sealed class App : Application
         if (_send is null)
         {
             var w = new SendWindow();
-            w.Closed += (_, _) => { if (_send == w) _send = null; if (_window is null) Engine.Look(false); };
+            w.Closed += (_, _) => { if (_send == w) _send = null; if (_window is not { IsVisible: true }) StopLookingLater(); };
             _send = w;
         }
         _send.Refresh();
@@ -433,25 +599,183 @@ public sealed class App : Application
         Engine.Look(true);
     }
 
+    ResourceDictionary? _styles;
+
+    /// <summary>The design's control styles (Styles.xaml), after the colours they use.</summary>
+    void EnsureStyles()
+    {
+        if (_styles is not null) return;
+        _styles = new ResourceDictionary { Source = new Uri("/AetherDrop;component/Styles.xaml", UriKind.Relative) };
+        Resources.MergedDictionaries.Add(_styles);
+    }
+
+    SettingsWindow? _settings;
+
+    /// <summary>The settings, at a tab: general, network, hardware or updates.</summary>
+    public void ShowSettings(string tab)
+    {
+        _settings?.Close();
+        _settings = new SettingsWindow(tab);
+        _settings.Closed += (s, _) => { if (_settings == s) _settings = null; };
+        _settings.Show();
+        _settings.Activate();
+    }
+
+    /// <summary>Starts AetherDropService (Windows asks for administrator rights).</summary>
+    public static void StartService()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("sc.exe", "start AetherDropService")
+                { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden });
+        }
+        catch (Exception) { /* the user said no */ }
+    }
+
+    Hotkey? _hotkey;
+
+    /// <summary>The global shortcut on or off, with its keys, after the settings. False when Windows would not register it (taken).</summary>
+    public bool ApplyHotkey()
+    {
+        _hotkey?.Dispose();
+        _hotkey = null;
+        if (UiDebugMode || !Settings.Hotkey) return true;
+        _hotkey = Hotkey.Register(Settings.HotkeyKeys, () =>
+        {
+            var selected = Shell.ExplorerSelection();
+            if (selected.Length == 0) { ShowWindow(); return; }
+            Model.Files.Clear();
+            foreach (var f in selected) Model.Files.Add(f);
+            ShowSendWindow();
+        });
+        return _hotkey is not null;
+    }
+
+    ResourceDictionary? _theme;
+    void OnSystemAppearanceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (Settings.Appearance != "auto") return;
+        Dispatcher.BeginInvoke(() => { Palette.RefreshSystemAppearance(); if (Palette.Dark != Theme.Dark) ApplyTheme(); });
+    }
+
+    /// <summary>The colours, again after the accent setting changes: every window follows (DynamicResource).</summary>
+    public void ApplyTheme()
+    {
+        Palette.SetAppearance(Settings.Appearance);
+        var fresh = Theme.Build(Settings.Accent);
+        if (_theme is not null) Resources.MergedDictionaries.Remove(_theme);
+        Resources.MergedDictionaries.Insert(0, fresh);
+        _theme = fresh;
+        EnsureStyles();
+        foreach (Window window in Windows)
+        {
+            RefreshThemeVisuals(window);
+            if (window is not AetherDrop.MainWindow and not SettingsWindow and not FloatingCard) Native.ApplyMica(window);
+        }
+        if (_tray is not null)
+        {
+            var old = _tray.ContextMenuStrip;
+            _tray.ContextMenuStrip = BuildMenu(); old?.Dispose();
+        }
+    }
+
+    static void RefreshThemeVisuals(DependencyObject root)
+    {
+        if (root is ReceiveToggle toggle) toggle.RefreshAppearance();
+        if (root is UIElement element) element.InvalidateVisual();
+        for (var i=0; i<System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+            RefreshThemeVisuals(System.Windows.Media.VisualTreeHelper.GetChild(root,i));
+    }
+
     /// <summary>After the language setting changes: menus, Explorer verb and open windows follow.</summary>
     public void ApplyLanguage()
     {
         L.Use(Settings.Language);
         if (_tray is not null) { var old = _tray.ContextMenuStrip; _tray.ContextMenuStrip = BuildMenu(); old?.Dispose(); }
         if (!UiDebugMode) { try { Shell.Register(Settings.StartWithWindows); } catch (Exception) { } }
-        if (_window is not null) { var w = _window; _window = null; w.Close(); ShowWindow(); }
+        if (_window is not null) { var w = _window; var shown = w.IsVisible; _window = null; w.Close(); if (shown) ShowWindow(); }
+    }
+
+    /// <summary>The engine again (a new identity, or Contacts Only switched): it reads both when it starts.</summary>
+    public void RestartEngine()
+    {
+        if (UiDebugMode) return;
+        Engine.Dispose();
+        if (Settings.Discoverable) StartEngine();
+    }
+
+    public async Task RestartEngineAsync()
+    {
+        if (UiDebugMode) return;
+        await Engine.StopAsync();
+        if (Settings.Discoverable) StartEngine();
+    }
+
+    System.Windows.Threading.DispatcherTimer? _appleIdTimer;
+
+    /// <summary>
+    /// Keeps a signed-in Apple ID's certificate and record fresh (appleid.exe
+    /// renews them ahead of expiry, and re-reads the iCloud contacts): soon
+    /// after start, then every 12 hours. A new certificate restarts the engine.
+    /// </summary>
+    void KeepAppleIdFresh()
+    {
+        _appleIdTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
+        _appleIdTimer.Tick += async (_, _) =>
+        {
+            _appleIdTimer.Interval = TimeSpan.FromHours(12);
+            if (!Settings.AppleIdOn || AppleId.Source != "appleid") return;
+            var before = AppleId.CertificateUntil;
+            var result = await AppleId.Refresh();
+            if (result == 0 && AppleId.CertificateUntil != before) RestartEngine();
+        };
+        _appleIdTimer.Start();
+    }
+
+    /// <summary>Who can send to this PC, from the AirDrop mark: "off", "contacts" or "everyone".</summary>
+    public void SetReceive(string mode)
+    {
+        if (mode == "off") { SetDiscoverable(false); return; }
+        // Contacts Only is meaningful only with both the feature and an identity.
+        // Keep this guard in the app action, shared by every UI entry point.
+        if (mode == "contacts" && !AppleId.InUse) { ShowSettings("appleid"); return; }
+        var changed = Settings.Receive != mode;
+        Settings.Receive = mode;
+        Settings.Save();
+        // Scope is a preference, not another receive on/off switch.
+        if (Model.Allow && changed) RestartEngine();
+        _window?.ShowMark();
+        _settings?.ShowReceive();
+        NotifyReceivingChanged();
     }
 
     public event Action? ReceivingChanged;
+    public void NotifyReceivingChanged() => ReceivingChanged?.Invoke();
 
+    Task _receiveTransition = Task.CompletedTask;
     public void SetDiscoverable(bool on)
     {
         Settings.Discoverable = on;
+        Model.Allow = on;
         Settings.Save();
-        ReceivingChanged?.Invoke();
+        NotifyReceivingChanged();
         if (UiDebugMode) return;
-        if (on) { StartEngine(); Service.Wake(); }
-        else Engine.Dispose();
+        // Render the switch immediately; the old synchronous exit wait blocked
+        // WPF's animation for up to three seconds. Serialize rapid reversals so
+        // the latest preference wins after any pending engine shutdown.
+        _receiveTransition = ApplyDiscoverableAsync(_receiveTransition);
+    }
+
+    async Task ApplyDiscoverableAsync(Task previous)
+    {
+        try
+        {
+            await previous;
+            await Dispatcher.Yield(DispatcherPriority.Background);
+            if (!Settings.Discoverable) await Engine.StopAsync();
+            if (Settings.Discoverable) { StartEngine(); Service.Wake(); }
+        }
+        catch (Exception e) { EngineLog($"receive toggle: {e.GetType().Name}: {e.Message}"); }
     }
 
     public void ShowWindow()
@@ -463,13 +787,39 @@ public sealed class App : Application
             w.Closed += (_, _) => { if (_window == w) _window = null; };
             _window = w;
         }
+        _window.CenterOnDesktop();
+        var opening = !_window.IsVisible || _window.IsClosing;
         _window.Show();
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
         _window.Activate();
+        if (opening) _window.Reveal();
+        _lookTimer?.Stop();
         Engine.Look(true);
     }
 
-    public void WindowClosed() { if (_send is null) Engine.Look(false); }
+    public void WindowClosed() { if (_send is null) StopLookingLater(); }
+
+    System.Windows.Threading.DispatcherTimer? _lookTimer;
+
+    /// <summary>
+    /// The panel or the send window went away: keep looking a while (90 s), and
+    /// for as long as a send or a request is under way, so devices, a send's
+    /// progress and its outcome are all still there when the panel opens again.
+    /// Looking wakes every Apple device nearby, so it does stop in the end.
+    /// </summary>
+    void StopLookingLater()
+    {
+        _lookTimer?.Stop();
+        _lookTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(90) };
+        _lookTimer.Tick += (_, _) =>
+        {
+            if (_send is not null || _window is { IsVisible: true }) { _lookTimer.Stop(); return; }
+            if (Model.Devices.Any(d => d.Busy) || Model.Requests.Count > 0) return; // check again in 90 s
+            _lookTimer.Stop();
+            Engine.Look(false);
+        };
+        _lookTimer.Start();
+    }
 
     void Quit()
     {
@@ -486,22 +836,31 @@ public sealed class App : Application
         {
             try
             {
-                using var server = new NamedPipeServerStream(_pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte,
-                                                             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                // Only this user, by the user's SID: CurrentUserOnly grants the token's
+                // owner, which is the Administrators group when this copy runs elevated,
+                // and then Explorer's right-click and the notification buttons (run
+                // unelevated) could not reach it (#45).
+                var security = new PipeSecurity();
+                security.AddAccessRule(new PipeAccessRule(WindowsIdentity.GetCurrent().User!,
+                                                          PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                                                          System.Security.AccessControl.AccessControlType.Allow));
+                using var server = NamedPipeServerStreamAcl.Create(_pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte,
+                                                                   PipeOptions.Asynchronous, 0, 0, security);
                 await server.WaitForConnectionAsync();
                 using var r = new StreamReader(server, Encoding.UTF8);
                 var line = await r.ReadLineAsync() ?? "";
                 var args = line.Length == 0 ? [] : line.Split('\u001f');
+                EngineLog("ui: got " + DescribeArgs(args));
                 await Dispatcher.BeginInvoke(() => HandleArgs(args, fromStart: false));
             }
-            catch (Exception) { await Task.Delay(500); }
+            catch (Exception e) { EngineLog($"ui: argument pipe: {e.GetType().Name}: {e.Message}"); await Task.Delay(500); }
         }
     }
 
-    /// <summary>--send FILE…, --background, or a nekodrop: URI from a notification.</summary>
+    /// <summary>--send FILE…, --background, or a AetherDrop: URI from a notification.</summary>
     void HandleArgs(string[] args, bool fromStart)
     {
-        if (args.Length > 0 && args[0].StartsWith("nekodrop:", StringComparison.OrdinalIgnoreCase))
+        if (args.Length > 0 && args[0].StartsWith("AetherDrop:", StringComparison.OrdinalIgnoreCase))
         {
             HandleUri(new Uri(args[0]));
             return;
@@ -552,6 +911,11 @@ public sealed class App : Application
         var res = await Updater.Check(Settings.PreviewUpdates);
         if (res.Status == Updater.CheckStatus.Available && res.Release is { } found)
         {
+            if (Settings.SkipVersion != found.Version.ToString())
+            {
+                Model.Update = found.Version.ToString();
+                Model.UpdatePreview = found.Preview;
+            }
             var announce = !asked && (_update is null || _update.Version != found.Version) &&
                            Settings.SkipVersion != found.Version.ToString();
             _update = found;
@@ -570,7 +934,7 @@ public sealed class App : Application
         if (r is null) return L.T("update.none");
         try
         {
-            var why = await Updater.Install(r, progress);
+            var why = await Updater.Install(r, progress, Settings.DeleteInstallerAfterInstall);
             if (why != "") Shell.DoneToast("update", L.T("update.failed"), why, null);
             return why;
         }
@@ -588,8 +952,32 @@ public sealed class App : Application
         Engine.Answer(id, accept);
         var card = _receiveCards.FirstOrDefault(x => x.RequestId == id);
         if (accept) card?.Accept(); else card?.Dismiss();
-        if (_requests.TryGetValue(id, out var r)) r.Status = accept ? L.T("req.receiving") : L.T("req.declined");
-        if (!accept && _requests.Remove(id, out var gone)) Model.Requests.Remove(gone);
+        if (_requests.TryGetValue(id, out var r))
+        {
+            r.Status = accept ? L.T("req.receiving") : L.T("req.declined");
+            r.Receiving = accept;
+        }
+        UpdateTransferActivity();
+        if (!accept && _requests.Remove(id, out var gone)) { Model.Requests.Remove(gone); DetachAsk(gone); }
+    }
+
+    /// <summary>
+    /// A request goes under its sender's icon on the radar: the device of the
+    /// same name, or one put there for it (the sender was not among the devices found).
+    /// </summary>
+    void AttachAsk(Request r)
+    {
+        var d = Model.Devices.FirstOrDefault(x => string.Equals(x.Name, r.Sender, StringComparison.OrdinalIgnoreCase) && x.Ask is null);
+        if (d is null) Model.Devices.Add(d = new Device { Id = "ask:" + r.Id, Name = r.Sender, Model = r.Model, ForAsk = true });
+        d.Ask = r;
+    }
+
+    void DetachAsk(Request r)
+    {
+        var d = Model.Devices.FirstOrDefault(x => x.Ask == r);
+        if (d is null) return;
+        d.Ask = null;
+        if (d.ForAsk) Model.Devices.Remove(d);
     }
 
     public void SendTo(Device d)
@@ -598,9 +986,11 @@ public sealed class App : Application
         var id = Guid.NewGuid().ToString("N")[..12];
         _sendTarget[id] = d.Id;
         d.Busy = true;
+        d.State = "asking";
         d.Status = L.T("send.asking");
         d.Progress = 0;
         Service.Touch();
+        UpdateTransferActivity();
         Engine.SendFiles(id, d.Id, Model.Files.ToList());
     }
 
@@ -625,14 +1015,15 @@ public sealed class App : Application
     /// </summary>
     async Task CheckPortal(string ssid)
     {
-        await Task.Delay(TimeSpan.FromSeconds(6)); /* DHCP on the nekodrop adapter */
+        await Task.Delay(TimeSpan.FromSeconds(6)); /* DHCP on the AetherDrop adapter */
         try
         {
             using var http = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false })
                 { Timeout = TimeSpan.FromSeconds(8) };
             var r = await http.GetAsync("http://www.msftconnecttest.com/connecttest.txt");
             var body = r.IsSuccessStatusCode ? await r.Content.ReadAsStringAsync() : "";
-            if (body.Trim() == "Microsoft Connect Test") return;
+            if (body.Trim() == "Microsoft Connect Test") { Model.Portal = ""; return; }
+            Model.Portal = ssid;
             Process.Start(new ProcessStartInfo("http://www.msftconnecttest.com/redirect") { UseShellExecute = true });
             Shell.DoneToast("portal", L.F("wifi.portal.title", ssid), L.T("wifi.portal.body"), null);
         }
@@ -645,12 +1036,29 @@ public sealed class App : Application
         var radio = (string?)o["radio"];
         // A radio (re)start recreates awdl0: the engine's sockets belong to the old
         // interface, so it starts over on the new one.
-        if (radio == "on" && _lastRadio != "on" && _lastRadio != "" && Settings.Discoverable)
+        // Not when the engine has no awdl0 yet (it binds to the new one by itself):
+        // on a wake it was started a moment earlier, and a second start only sent a
+        // goodbye to the iPhone (#32, #35).
+        if (radio == "on" && _lastRadio != "on" && _lastRadio != "" && Settings.Discoverable &&
+            !(Engine.Running && _engineIf < 0))
         {
             Engine.Dispose();
             StartEngine();
         }
         _lastRadio = radio ?? "";
+        Model.RadioOn = radio == "on";
+        var stateMode = (string?)o["effectiveMode"] ?? (string?)o["mode"] ?? "";
+        var card = (string?)o["card"] ?? "";
+        Model.Mode = (string?)o["mode"] ?? "";
+        Model.Channel = (int?)o["channel"] ?? 0;
+        Model.Ssid = (string?)o["wifi"] == "connected" ? (string?)o["ssid"] ?? "" : "";
+        Model.Air = card == "" && stateMode != "off" ? "no_adapter" : radio switch
+        {
+            "on" => "ready",
+            "starting" => "starting",
+            "error" => "error",
+            _ => stateMode == "off" ? "off" : "standby",
+        };
         var wifiNow = (string?)o["wifi"] ?? "";
         if (wifiNow == "connected" && _lastWifi != "connected") _ = CheckPortal((string?)o["ssid"] ?? "");
         _lastWifi = wifiNow;
@@ -677,13 +1085,28 @@ public sealed class App : Application
         _ => s,
     };
 
+    DateTime _negotiationUntil;
+
+    void UpdateTransferActivity()
+    {
+        if (!UiDebugMode)
+            Service.TransferActivity(Engine.Running && (DateTime.UtcNow < _negotiationUntil ||
+                _requests.Count != 0 || Model.Devices.Any(d => d.Busy)));
+    }
+
     void OnEngine(JsonObject o)
     {
         var ev = (string?)o["event"];
         var id = (string?)o["id"] ?? "";
         switch (ev)
         {
+            case "negotiating":
+                // A phone opens TLS before it sends /Ask. The radio must not
+                // restart while that handshake or metadata exchange is pending.
+                _negotiationUntil = DateTime.UtcNow.AddSeconds(45);
+                break;
             case "ready":
+                _negotiationUntil = DateTime.MinValue;
                 /* A new engine (the watchdog starts one over when the radio
                  * moves channel and re-creates awdl0) knows no peers and is not
                  * looking: the old one's devices go, and an open window looks
@@ -691,9 +1114,11 @@ public sealed class App : Application
                 _resettingReceiveCards = true;
                 foreach (var card in _receiveCards.ToArray()) card.Close();
                 _receiveCards.Clear(); _requests.Clear(); Model.Requests.Clear();
+                _sendTarget.Clear();
+                foreach (var device in Model.Devices) device.Busy = false;
                 _resettingReceiveCards = false;
                 foreach (var stale in Model.Devices.Where(x => !x.Busy).ToList()) Model.Devices.Remove(stale);
-                if (_send is not null || _window is not null) Engine.Look(true);
+                if (_send is not null || _window is { IsVisible: true }) Engine.Look(true);
                 break;
             case "receiving":
                 /* Not receiving (ports or mDNS held, a socket error): the watchdog starts over after a while. */
@@ -713,16 +1138,27 @@ public sealed class App : Application
                 break;
             case "asked":
             {
+                _negotiationUntil = DateTime.MinValue;
                 Service.Touch();
                 var sender = (string?)o["sender"] ?? L.T("dev.someone");
                 var model = (string?)o["model"] ?? "";
                 var files = o["files"] as JsonArray;
                 var what = Describe(files);
+                var key = $"{sender}|{model}";
+                // Remembered for Settings > Always accept from > Add (#45).
+                if (Settings.RecentSenders.FirstOrDefault() != key)
+                {
+                    Settings.RecentSenders.Remove(key);
+                    Settings.RecentSenders.Insert(0, key);
+                    if (Settings.RecentSenders.Count > 8) Settings.RecentSenders.RemoveRange(8, Settings.RecentSenders.Count - 8);
+                    Settings.Save();
+                }
                 var r = new Request { Id = id, Sender = sender, Model = model, What = what };
                 _requests[id] = r;
                 Model.Requests.Insert(0, r);
+                AttachAsk(r);
                 ShowReceive(r);
-                if ((bool?)o["waits"] == false || Settings.AlwaysAccept.Contains($"{sender}|{model}")) Answer(id, true);
+                if ((bool?)o["waits"] == false || Settings.AlwaysAccept.Contains(key)) Answer(id, true);
                 break;
             }
             case "answered":
@@ -731,17 +1167,19 @@ public sealed class App : Application
                     if ((string?)o["how"] == "accepted")
                     {
                         answered.Answered = true;
+                        answered.Receiving = true;
                         answered.Status = L.T("req.receiving");
                         _receiveCards.FirstOrDefault(x => x.RequestId == id)?.Accept();
                     }
                     else
                     {
-                        _requests.Remove(id); Model.Requests.Remove(answered);
+                        _requests.Remove(id); Model.Requests.Remove(answered); DetachAsk(answered);
                         _receiveCards.FirstOrDefault(x => x.RequestId == id)?.Dismiss();
                     }
                 }
                 break;
             case "incoming":
+                _negotiationUntil = DateTime.MinValue;
                 if (_requests.TryGetValue(id, out var inc))
                 {
                     var total = (double?)o["total"] ?? 0;
@@ -749,6 +1187,7 @@ public sealed class App : Application
                     inc.Progress = total > 0 ? done / total : 0;
                     _receiveCards.FirstOrDefault(x => x.RequestId == id)?.Update(done, total);
                     inc.Status = L.T("req.receiving");
+                    inc.Receiving = true;
                 }
                 Service.Touch();
                 break;
@@ -756,13 +1195,14 @@ public sealed class App : Application
             {
                 var folder = (string?)o["folder"] ?? Settings.SaveFolder;
                 var from = _requests.TryGetValue(id, out var st) ? st.Sender : "隔空投送";
-                if (st is not null) { _requests.Remove(id); Model.Requests.Remove(st); }
+                if (st is not null) { _requests.Remove(id); Model.Requests.Remove(st); DetachAsk(st); }
                 if (o["files"] is JsonArray stored)
                     foreach (var f in stored)
                     {
                         var name = f is JsonObject fo ? (string?)fo["name"] ?? "" : (string?)f ?? "";
                         Model.ReceivedFiles.Insert(0, new Received { Name = name, Path = Path.Combine(folder, name), From = from });
                     }
+                Model.RaiseStored();
                 var finishedCard = _receiveCards.FirstOrDefault(x => x.RequestId == id);
                 if (finishedCard is not null) finishedCard.Finish(true, "", UiDebugMode
                     ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : folder);
@@ -773,6 +1213,8 @@ public sealed class App : Application
                 if (_requests.Remove(id, out var lost))
                 {
                     Model.Requests.Remove(lost);
+                    DetachAsk(lost);
+                    Model.ReceivedFiles.Insert(0, new Received { Name = lost.What, Path = "", From = lost.Sender, Failed = true });
                     var failedCard = _receiveCards.FirstOrDefault(x => x.RequestId == id);
                     if (failedCard is not null) failedCard.Finish(false, (string?)o["reason"] ?? FloatingCard.Text("传输中断", "Transfer interrupted"));
                     else if (!UiDebugMode) Shell.DoneToast(id, L.F("done.lost", lost.Sender), (string?)o["reason"] ?? "", null);
@@ -784,6 +1226,7 @@ public sealed class App : Application
                 var d = Model.Devices.FirstOrDefault(x => x.Id == target);
                 if (d is null) break;
                 var state = (string?)o["state"];
+                d.State = state is "done" ? "sent" : state ?? "";
                 var total = (double?)o["total"] ?? 0;
                 var done = (double?)o["done"] ?? (double?)o["sent"] ?? 0;
                 d.Progress = total > 0 ? done / total : d.Progress;
@@ -799,6 +1242,15 @@ public sealed class App : Application
                 if (state is "sent" or "done" or "declined" or "failed")
                 {
                     d.Busy = false;
+                    // A device that took the files is ready for more a moment later.
+                    if (state is "sent" or "done")
+                        _ = Task.Delay(TimeSpan.FromSeconds(3.5)).ContinueWith(_ => Dispatcher.BeginInvoke(() =>
+                        {
+                            if (d.State != "sent") return;
+                            d.State = "";
+                            d.Progress = 0;
+                            d.Status = L.T("dev.ready");
+                        }));
                     if (state is "sent" or "done") Shell.DoneToast(id, L.F("done.sent", d.Name), L.F("done.items", Model.Files.Count), null);
                 }
                 Service.Touch();
@@ -814,6 +1266,7 @@ public sealed class App : Application
                 Model.Detail = L.T("err.engineStopped") + ((string?)o["detail"] ?? (string?)o["reason"] ?? "");
                 break;
         }
+        UpdateTransferActivity();
     }
 
 
